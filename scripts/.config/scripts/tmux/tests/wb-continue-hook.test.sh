@@ -55,8 +55,9 @@ printf '{"sessionId":"%s","pid":%s}\n' "$1" "$$" > "$WB_CONTINUE_SESSIONS_DIR/$$
 [ -z "${2:-}" ] || printf "$2"
 exec sleep 600
 EOF2
-# The fresh Claude: records argv; mode `exit` quits at once, mode `pickup`
-# runs the real pick-up with the session id it was given, then sits.
+# The fresh Claude: records argv; mode `exit` quits at once, mode `sit`
+# registers and sits without picking up, mode `pickup` runs the real pick-up
+# with the session id it was given, then sits.
 cat >"$FIX/bin/claude" <<EOF2
 #!/usr/bin/env bash
 n=\$(( \$(cat "$FIX/claude-count" 2>/dev/null || echo 0) + 1 )); echo \$n > "$FIX/claude-count"
@@ -65,6 +66,10 @@ sid=""; prev=""; last=""
 for a in "\$@"; do [ "\$prev" = --session-id ] && sid="\$a"; prev="\$a"; last="\$a"; done
 case "\$(cat "$FIX/claude-mode" 2>/dev/null)" in
   exit) exit 0 ;;
+  sit)
+    printf '\xe2\x9d\xaf\xc2\xa0\n'
+    printf '{"sessionId":"%s","pid":%s}\n' "\$sid" "\$\$" > "\$WB_CONTINUE_SESSIONS_DIR/\$\$.json"
+    exec sleep 600 ;;
   pickup)
     CLAUDE_CODE_SESSION_ID="\$sid" bash "$WB" continue pickup "\${last#/wb-resume --continue }" > "$FIX/claude-pickup-\$n.out" 2>&1
     printf '{"sessionId":"%s","pid":%s}\n' "\$sid" "\$\$" > "\$WB_CONTINUE_SESSIONS_DIR/\$\$.json"
@@ -1313,6 +1318,235 @@ wait_state "$STEM" '^ready$'
 stop_clean
 assert_eq "a turn after it went ready is counted" 1 "$(wbc_get "$STEM" stops_since_save)"
 assert "... and the release refuses" "refused: the session kept working after the save" "$(wbc_release "$(tf "$STEM")" 2>&1)"
+end_case
+
+# =============================================================================
+echo "# focused review R1-R10"
+# =============================================================================
+# R2: a failed-after-respawn request keeps the fresh session id through a wait
+fail_after_respawn() { # [mode] — arm, restart, fresh claude never picks up: failed, new_session_id set
+  new_live_case
+  arm_req ""
+  echo "${1:-exit}" >"$FIX/claude-mode"
+  stop_clean
+  wait_state "$STEM" '^failed$' 15
+  FRESH="$(wbc_get "$STEM" new_session_id)"
+  [ "${1:-exit}" != exit ] || wait_shell "$PANE"
+}
+fail_after_respawn sit
+assert_eq "R2 fixture: failed with the fresh Claude still running" "failed $FRESH" "$(state_of "$STEM") $(wbc_get "$STEM" new_session_id)"
+assert "R2 fixture: the fresh id is a uuid" '^[0-9a-f-]{36}$' "$FRESH"
+BORN_BEFORE="$(find "$XDG_STATE_HOME/wb/continue/born" -type f | wc -l)"
+: >"$FIX/capture-count"
+echo 2 >"$FIX/capture-pending-after"
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "R2: the first re-release passes the check and starts the helper" "$STEM: released" "$out"
+wait_state "$STEM" '^ready$' 15
+wait_log "event=helper-ready"
+assert "R2: the helper met text on the input line and went back to ready" "text or a dialog" "$(reason_of "$STEM")"
+assert_eq "R2: the wait kept the fresh session id" "$FRESH" "$(wbc_get "$STEM" new_session_id)"
+assert_eq "R2: the id this run minted left no born marker" "$BORN_BEFORE" "$(find "$XDG_STATE_HOME/wb/continue/born" -type f | wc -l)"
+rm -f "$FIX/capture-pending-after" "$FIX/capture-count"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "R2: the second release is not stuck on 'could not confirm'" "$STEM: released" "$out"
+wait_gone "$STEM" 15
+assert_eq "R2: ... and the pick-up happened" 0 "$?"
+end_case
+
+# the same against a bare shell: the helper itself hits a wait (a turn in progress), then a release works
+fail_after_respawn exit
+assert_eq "R2 fixture: failed with the pane at a bare shell" "failed" "$(state_of "$STEM")"
+ID="$(wbc_get "$STEM" id)"
+(_wbc_lock "$STEM"; wbc_set test "$STEM" claimed "released by Jet" released=1; _wbc_unlock "$STEM")
+tm set -p -t "$PANE" @claude_working 1
+env WB_CONTINUE_SETTLE_MS=200 WB_CONTINUE_SETTLE_MAX_MS=600 "$REAL_BASH" "$HOOK" helper "$STEM" "$ID" release
+assert_eq "R2: a wait in release mode goes back to ready" ready "$(state_of "$STEM")"
+assert_eq "R2: ... keeping the fresh session id" "$FRESH" "$(wbc_get "$STEM" new_session_id)"
+tm set -p -t "$PANE" @claude_working ""
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "R2: then a release against the bare shell goes" "$STEM: released" "$out"
+wait_gone "$STEM" 15
+assert_eq "R2: ... and the pick-up happened" 0 "$?"
+end_case
+
+# the respawn-failure path keeps the id too (tmux cannot respawn a pane that is gone: the shim refuses)
+fail_after_respawn exit
+ID="$(wbc_get "$STEM" id)"
+(_wbc_lock "$STEM"; wbc_set test "$STEM" claimed "released by Jet" released=1; _wbc_unlock "$STEM")
+mkdir -p "$FIX/nr"
+cat >"$FIX/nr/tmux" <<EOF2
+#!/usr/bin/env bash
+if [ "\$1" = respawn-pane ]; then exit 1; fi
+exec "$FIX/bin/tmux" "\$@"
+EOF2
+chmod +x "$FIX/nr/tmux"
+env PATH="$FIX/nr:$PATH" WB_CONTINUE_SETTLE_MS=200 WB_CONTINUE_SETTLE_MAX_MS=1500 "$REAL_BASH" "$HOOK" helper "$STEM" "$ID" release
+assert_eq "R2: a respawn failure goes back to ready" ready "$(state_of "$STEM")"
+assert_eq "R2: ... keeping the fresh session id" "$FRESH" "$(wbc_get "$STEM" new_session_id)"
+end_case
+
+# R3: a shell pane that runs a job is not idle
+fail_after_respawn exit
+printf '#!/usr/bin/env bash\nsleep 120\ntrue\n' >"$FIX/job.sh"
+tm send-keys -t "$PANE" -l "bash $FIX/job.sh"
+tm send-keys -t "$PANE" Enter
+sleep 1
+assert "R3 fixture: the pane's foreground command is a shell, with a job under it" 'bash|sh' "$(tm display-message -p -t "$PANE" '#{pane_current_command}')"
+: >"$TMUX_LOG"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "R3: a shell with a running job is not released" "not released: a command is still running in the pane's shell" "$out"
+refute "R3: nothing respawned" 'respawn-pane' "$(tlog)"
+tm send-keys -t "$PANE" C-c
+wait_shell "$PANE"
+sleep 0.3
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "R3: the same pane at a bare idle shell releases" "$STEM: released" "$out"
+wait_gone "$STEM" 15
+assert_eq "R3: ... and the pick-up happened" 0 "$?"
+end_case
+
+# R4: a turn Jet opens while an armed request waits
+r4_transcript() { # <file> <last-prompt-kind> <offset from created for the last prompt>
+  local c; c="$(wbc_get "$STEM" created)"
+  {
+    tr_assistant claude-opus-5-5
+    tr_user human "$(typed_prompt "do the typed thing")" | jq -c --arg t "$(date -u -d "@$((c - 5))" +%Y-%m-%dT%H:%M:%S.123Z)" '.timestamp = $t'
+    if [ "$2" != none ]; then tr_user "$2" "later turn" | jq -c --arg t "$(date -u -d "@$((c + $3))" +%Y-%m-%dT%H:%M:%S.456Z)" '.timestamp = $t'; fi
+  } >"$1"
+}
+r4_stop() { run_hook hook-stop "$PANE" "$(payload Stop-background-work.json "$SID" '.background_tasks = [] | .session_crons = [] | .transcript_path = "'"$1"'"')"; }
+R4T="$FIX/r4.jsonl"
+
+new_live_case
+{ tr_user human "$(typed_prompt "do the typed thing")"; } >"$T"
+arm_req "" "$T"
+assert_eq "R4 fixture: armed (typed)" armed "$(state_of "$STEM")"
+r4_transcript "$R4T" human 5
+r4_stop "$R4T"
+assert_eq "R4: Jet opened a turn after the request was made: refused" refused "$(state_of "$STEM")"
+assert_eq "R4: the reason says to save again" "the session kept working after the save; save again" "$(reason_of "$STEM")"
+assert "R4: the pane carries the reason" 'kept working after the save' "$(tm show -pv -t "$PANE" @wb_continue_reason 2>/dev/null)"
+sleep 0.5
+refute "R4: nothing respawned" 'respawn-pane' "$(tlog)"
+assert "R4: log: hook-refused" "event=hook-refused stem=$STEM .*state=refused reason=\"the session kept working after the save; save again\"" "$(log_text)"
+end_case
+
+new_live_case
+{ tr_user human "$(typed_prompt "do the typed thing")"; } >"$T"
+arm_req "" "$T"
+r4_transcript "$R4T" task-notification 5
+echo pickup >"$FIX/claude-mode"
+r4_stop "$R4T"
+wait_gone "$STEM" 15
+assert_eq "R4: a background-notification turn after the request: still restarts" 0 "$?"
+assert_eq "R4: ... one respawn" 1 "$(tlog | /usr/bin/grep -c "^respawn-pane -k -t $PANE ")"
+end_case
+
+new_live_case
+{ tr_user human "$(typed_prompt "do the typed thing")"; } >"$T"
+arm_req "" "$T"
+r4_transcript "$R4T" none 0
+echo pickup >"$FIX/claude-mode"
+r4_stop "$R4T"
+wait_gone "$STEM" 15
+assert_eq "R4: the save's own typed turn (opened before the request) still restarts" 0 "$?"
+end_case
+
+new_live_case
+arm_req ""
+r4_transcript "$R4T" human 5
+BG="$(payload Stop-background-work.json "$SID" '.transcript_path = "'"$R4T"'"')"
+run_hook hook-stop "$PANE" "$BG"
+assert_eq "R4: a human turn after the request that ends with background work running is refused too" refused "$(state_of "$STEM")"
+end_case
+
+# R5: re-releasing does not count the old session's turns twice
+new_case
+mk_old "p1 $BASE $((BASE + 10))" "p2 $((BASE + 100)) $((BASE + 110))"
+tm set -p -t "$PANE" @wb_seen_at $((BASE + 50))
+restart_and_wait
+wait_state "$STEM" '^failed$' 15
+assert_eq "R5 fixture: the first restart counted one turn" "$SID 1 p2" "$(unseen_text)"
+wait_shell "$PANE" || true
+wbc_release "$(tf "$STEM")" >/dev/null 2>&1
+sleep 0.5
+wait_state "$STEM" '^failed$' 15
+assert_eq "R5: a re-release of the failed request adds no second line" "$SID 1 p2" "$(unseen_text)"
+assert_eq "R5: ... and the pane mark is unchanged" 1 "$(tm show -pv -t "$PANE" @wb_unseen)"
+end_case
+rm -rf "$UNSEEN_DIR"
+
+# R6: a helper that finds its request replaced removes the pick-up marker for its id
+new_live_case
+arm_req ""
+ID="$(wbc_get "$STEM" id)"
+(_wbc_lock "$STEM"; wbc_set test "$STEM" claimed "claimed by the Stop hook"; _wbc_unlock "$STEM")
+mkdir -p "$XDG_STATE_HOME/wb/continue/picked-up"
+: >"$XDG_STATE_HOME/wb/continue/picked-up/$ID"
+tm set -p -t "$PANE" @claude_working 1
+( sleep 0.3; sed -i 's/^id=.*/id=someone@else/' "$(wbc_dir "$STEM")/request" ) &
+env WB_CONTINUE_SETTLE_MS=200 WB_CONTINUE_SETTLE_MAX_MS=1200 "$REAL_BASH" "$HOOK" helper "$STEM" "$ID"
+wait
+assert_eq "R6: the helper's stale exit removed the marker of its id" no "$([ -e "$XDG_STATE_HOME/wb/continue/picked-up/$ID" ] && echo yes || echo no)"
+assert "R6: ... and logged helper-stale" "event=helper-stale stem=$STEM id=$ID" "$(log_text)"
+end_case
+
+# R8/R10: a release records itself on the request, and the pick-up says so
+new_case
+stage_req
+echo exit >"$FIX/claude-mode"
+wbc_release "$(tf "$STEM")" >/dev/null 2>&1
+assert_eq "R10: a release by Jet marks the request released=1" 1 "$(wbc_get "$STEM" released)"
+end_case
+new_live_case
+arm_req ""
+echo exit >"$FIX/claude-mode"
+stop_clean
+wait_state "$STEM" '^(restarting|failed)$' 15
+assert_eq "R10: a restart the Stop hook started is not marked released" "" "$(wbc_get "$STEM" released)"
+end_case
+new_case
+stage_req
+rm -f "$FIX"/claude-pickup-*.out
+echo pickup >"$FIX/claude-mode"
+wbc_release "$(tf "$STEM")" >/dev/null 2>&1
+for _ in $(seq 150); do /usr/bin/grep -q 'Command to carry out' "$FIX/claude-pickup-1.out" 2>/dev/null && break; sleep 0.1; done
+assert "R10: the fresh Claude's pick-up says Jet released the restart" '^Command source: written by the saving session, not by Jet; Jet released the restart$' "$(/usr/bin/grep -E '^(Command|Note)' "$FIX/claude-pickup-1.out" 2>/dev/null)"
+wait_gone "$STEM" 15
+end_case
+
+# R8: an old Claude still alive under a failed request that has a fresh id releases; a third Claude does not
+new_case
+stage_req
+FRESHID="fresh-id-$N"
+(_wbc_lock "$STEM"; wbc_set test "$STEM" failed "the restart never finished" new_session_id="$FRESHID"; _wbc_unlock "$STEM")
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "R8: the saving Claude is still live and the request has a fresh id: released" "$STEM: released" "$out"
+wait_gone "$STEM" 15
+end_case
+new_case
+stage_req
+(_wbc_lock "$STEM"; wbc_set test "$STEM" failed "the restart never finished" new_session_id="fresh-id-$N" session_id=a-third-claude; _wbc_unlock "$STEM")
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "R8: a Claude that is neither the saving one nor the fresh one: not released" "not released: could not confirm the pane's Claude is the one that saved" "$out"
+refute "R8: nothing respawned" 'respawn-pane' "$(tlog)"
+end_case
+# the kept-working guard still applies when the saving Claude is still live
+new_case
+stage_req
+(_wbc_lock "$STEM"; wbc_set test "$STEM" failed "the restart never finished" new_session_id="fresh-id-$N" stops_since_save=3; _wbc_unlock "$STEM")
+assert "R8: the saving Claude is live and kept working: refused" "refused: the session kept working after the save" "$(wbc_release "$(tf "$STEM")" 2>&1)"
+end_case
+
+# R9: the background-work wait says what happens next
+new_case
+stage_req
+(_wbc_lock "$STEM"; wbc_set snapshot "$STEM" ready "saved" "last_stop=$(date +%s)" last_busy=1; _wbc_unlock "$STEM")
+assert "R9: a ready request waiting on background work says to save again afterwards" "not released: background work was still running at the last turn end; when it finishes, save again" "$(wbc_release "$(tf "$STEM")" 2>&1)"
 end_case
 
 # =============================================================================

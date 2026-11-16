@@ -205,11 +205,16 @@ wbch_stop() {
   reason="$cur_reason"
   event=snapshot
 
-  local claim=0
+  local claim=0 refuse=0
   if [ "$state" = armed ] && [ "$(wbc_get "$stem" pane)" = "$TMUX_PANE" ]; then
     created="$(wbc_get "$stem" created)"
     local max="${WB_CONTINUE_MAX_AGE:-1800}"
-    if [[ "${created:-}" =~ ^[0-9]+$ ]] && [ $((now - created)) -gt "$max" ]; then
+    if [[ "${created:-}" =~ ^[0-9]+$ ]] && _wbc_human_turn_after "$tpath" "$created"; then
+      new_state=refused
+      event=hook-refused
+      reason="the session kept working after the save; save again"
+      refuse=1
+    elif [[ "${created:-}" =~ ^[0-9]+$ ]] && [ $((now - created)) -gt "$max" ]; then
       new_state=ready
       event=hook-ready
       reason="waited $(((now - created) / 60)) minutes; release it from the picker"
@@ -234,6 +239,10 @@ wbch_stop() {
   fi
   wbc_set "$event" "$stem" "$new_state" "$reason" "${snap[@]}"
   _wbc_unlock "$stem"
+  if [ "$refuse" = 1 ]; then
+    WBCH_PANE="$TMUX_PANE"
+    wbch_pane_reason "$reason"
+  fi
   [ "$claim" = 1 ] || return 0
 
   # Only the Stop that moved armed -> claimed gets here. The helper is owned by
@@ -258,11 +267,9 @@ wbch_stop() {
 # A /clear by hand gives the session a NEW id, so the request is found by its
 # pane, and only dropped when the pane's tmux session is that request's task.
 wbch_session_start() {
-  local stem="$WBCH_STEM" sess file
+  local stem="$WBCH_STEM" file
   [ "$(jq -r '.source // empty' <<<"$WBCH_INPUT" 2>/dev/null)" = clear ] || return 0
-  sess="$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null)" || return 0
-  [ -n "$sess" ] || return 0
-  file="$(wb_session_task_file "$sess" 2>/dev/null)" || return 0
+  file="$(wbch_pane_task_file "$TMUX_PANE")" || return 0
   wbch_find pane "$TMUX_PANE" "$file" || return 0
   stem="$WBCH_STEM"
   _wbc_lock "$stem" || return 0
@@ -275,7 +282,7 @@ wbch_session_start() {
 
 # --- the helper ---------------------------------------------------------------------------------
 
-WBCH_DONE=0 WBCH_ID="" WBCH_PANE="" WBCH_RELEASE="" WBCH_DRIFT=""
+WBCH_DONE=0 WBCH_ID="" WBCH_PANE="" WBCH_RELEASE="" WBCH_DRIFT="" WBCH_PREV_NEW=""
 
 # wbch_on_exit — the helper never leaves a request claimed or restarting
 # without a word: on any exit it did not plan, say so in the request and log.
@@ -303,6 +310,7 @@ wbch_pane_reason() {
 # wbch_stale_exit — the request was replaced or dropped while the helper ran
 # (the caller has released the lock): log it and end the helper quietly.
 wbch_stale_exit() {
+  rm -f "$(wb_continue_state_root)/picked-up/$WBCH_ID"
   wb_continue_log helper-stale "$WBCH_STEM" "$WBCH_ID" gone "the request was replaced or dropped while the helper ran"
   WBCH_DONE=1
   exit 0
@@ -336,12 +344,14 @@ wbch_end() {
 
 # wbch_back_armed <reason> — the request waits for the next quiet turn end.
 # A release by Jet goes back to `ready` instead: an `armed` request would let a
-# later Stop restart a pane Jet only meant to release by hand.
+# later Stop restart a pane Jet only meant to release by hand. A wait keeps the
+# fresh session id a failed-after-respawn request already had (WBCH_PREV_NEW);
+# only the id this run minted goes.
 wbch_back_armed() {
   if [ "$WBCH_RELEASE" = release ]; then
-    wbch_end helper-ready ready "$1" new_session_id= model_fallback=
+    wbch_end helper-ready ready "$1" "new_session_id=$WBCH_PREV_NEW" model_fallback=
   fi
-  wbch_end helper-armed armed "$1" new_session_id= model_fallback=
+  wbch_end helper-armed armed "$1" "new_session_id=$WBCH_PREV_NEW" model_fallback=
 }
 
 # wbch_input_pending <pane> — text on Claude's input line, or no input line on
@@ -430,13 +440,15 @@ wbch_pane_claude_is() {
 }
 
 # wbch_pane_claude_ok <pane> <old-id> <new-id> — the identity check. A request
-# that failed after the respawn (<new-id> set) no longer has its old Claude:
-# accept no live Claude under the pane, or the one the restart started. Any
-# other request needs the Claude that saved.
+# with a fresh session id (<new-id> set: the restart got as far as minting it)
+# accepts the Claude that saved (a helper killed before the respawn), the one the
+# restart started, or none (it respawned and failed). Any other request needs
+# the Claude that saved.
 wbch_pane_claude_ok() {
   local rc
   if [ -n "$3" ]; then
     wbch_pane_claude_is "$1" "$3" && return 0
+    wbch_pane_claude_is "$1" "$2" && return 0
     wbch_pane_claude_is "$1" ""
     rc=$?
     [ "$rc" = 1 ] # none live, and the pane exists
@@ -451,6 +463,39 @@ wbch_pane_is_shell() {
     bash | zsh | sh | dash | fish) return 0 ;;
   esac
   return 1
+}
+
+# wbch_pane_has_child <pane> — the pane's shell has a child process (a running
+# script, a loop's command, a background job). Unreadable children count as one.
+wbch_pane_has_child() {
+  local pid f kids
+  pid="$(tmux display-message -p -t "$1" '#{pane_pid}' 2>/dev/null)"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+  [ -d "/proc/$pid/task" ] || return 0
+  for f in "/proc/$pid"/task/*/children; do
+    [ -r "$f" ] || return 0
+    kids=""
+    read -r kids <"$f" || true
+    [[ "$kids" == *[0-9]* ]] && return 0
+  done
+  return 1
+}
+
+# wbch_input_blocked <pane> <new-session-id> — something on the pane stands in
+# the way of a restart; WBCH_PENDING says what. With a new session id (the
+# request already respawned the pane) the pane may be at a bare shell, which has
+# no input line to read: that is free when the shell has no child process, and
+# blocked while it runs a command. Anywhere else the input line decides.
+# Text typed after a plain shell prompt is not detected: prompts vary too much.
+wbch_input_blocked() {
+  if [ -n "$2" ] && wbch_pane_is_shell "$1"; then
+    if wbch_pane_has_child "$1"; then
+      WBCH_PENDING="a command is still running in the pane's shell"
+      return 0
+    fi
+    return 1
+  fi
+  wbch_input_pending "$1"
 }
 
 # wbch_drift_probe <stem> — the drift check under the task lock; the caller
@@ -564,14 +609,13 @@ wbch_helper() {
   wt="$(wbc_get "$stem" worktree)"
   old="$(wbc_get "$stem" session_id)"
   prev_new="$(wbc_get "$stem" new_session_id)"
+  WBCH_PREV_NEW="$prev_new"
   wbch_pane_reason ""
 
   # 1. Settle: the turn that just ended is really over.
   wbch_settle "$pane" || wbch_back_armed "a new turn started"
   # 2. Text or a dialog on the input line.
-  if ! { [ -n "$prev_new" ] && wbch_pane_is_shell "$pane"; } && wbch_input_pending "$pane"; then
-    wbch_back_armed "$WBCH_PENDING"
-  fi
+  if wbch_input_blocked "$pane" "$prev_new"; then wbch_back_armed "$WBCH_PENDING"; fi
   # 3. A /decide surface, then drift.
   [ -s "$(wb_needs_you_file "$stem")" ] && wbch_back_armed "waiting: a /decide surface is open"
   wbch_drift || wbch_back_armed "could not take the request lock for the drift check"
@@ -602,11 +646,12 @@ wbch_helper() {
   # Count what Jet has not seen while the old Claude's transcript and the pane's
   # focus stamp are still there; nothing slow may sit between the final look and
   # the respawn.
-  wbch_unseen_scan "$pane" "$old"
+  # A re-release of a request that already respawned once has counted them.
+  if [ -z "$prev_new" ] || wbch_pane_claude_is "$pane" "$old"; then wbch_unseen_scan "$pane" "$old"; fi
 
   # 7. The final look, immediately before the respawn.
   local undo=""
-  if ! { [ -n "$prev_new" ] && wbch_pane_is_shell "$pane"; } && wbch_input_pending "$pane"; then
+  if wbch_input_blocked "$pane" "$prev_new"; then
     undo="$WBCH_PENDING"
   elif [ -n "$(tmux show -pv -t "$pane" @claude_working 2>/dev/null)" ]; then undo="a new turn started"; fi
   if [ -n "$undo" ]; then
@@ -617,7 +662,7 @@ wbch_helper() {
   # 8. Restart: the pane's original shell, a prompt, then the fixed launch line.
   tmux respawn-pane -k -t "$pane" -c "$wt" 2>/dev/null || {
     rm -f "$(wb_continue_state_root)/born/$new"
-    wbch_end helper-ready ready "tmux could not respawn the pane; release it from the picker" new_session_id= model_fallback=
+    wbch_end helper-ready ready "tmux could not respawn the pane; release it from the picker" "new_session_id=$prev_new" model_fallback=
   }
   wbch_unseen_write "$stem" "$pane" "$old"
   # A shell seen on two polls in a row: the command name passes through
@@ -682,6 +727,7 @@ wbch_helper() {
 # working after it: the request is refused). Reuses the helper's own input-line, drift and pane-Claude checks.
 wbch_release_check() {
   local stem="$1" pane tsess tf busy stop nsid=""
+  nsid="$(wbc_get "$stem" new_session_id)"
   pane="$(wbc_get "$stem" pane)"
   tf="$(wbc_get "$stem" task_file)"
   tsess=""
@@ -692,7 +738,8 @@ wbch_release_check() {
   fi
   case "$(wbc_get "$stem" state)" in
     ready | failed)
-      if [ -z "$(wbc_get "$stem" new_session_id)" ] && [ "$(wbc_get "$stem" stops_since_save)" -gt 0 ] 2>/dev/null; then
+      if { [ -z "$nsid" ] || wbch_pane_claude_is "$pane" "$(wbc_get "$stem" session_id)"; } \
+        && [ "$(wbc_get "$stem" stops_since_save)" -gt 0 ] 2>/dev/null; then
         echo "the session kept working after the save; save again"
         return 2
       fi
@@ -705,10 +752,12 @@ wbch_release_check() {
     return 1
   fi
   if [ "$busy" != 0 ]; then
-    echo "background work was still running at the last turn end"
+    case "$(wbc_get "$stem" state)" in
+      armed) echo "background work was still running at the last turn end" ;;
+      *) echo "background work was still running at the last turn end; when it finishes, save again" ;;
+    esac
     return 1
   fi
-  [ "$(wbc_get "$stem" state)" = failed ] && nsid="$(wbc_get "$stem" new_session_id)"
   if [ -n "$(tmux show -pv -t "$pane" @claude_working 2>/dev/null)" ]; then
     echo "a turn is in progress"
     return 1
@@ -717,7 +766,7 @@ wbch_release_check() {
     echo "a /decide surface is open"
     return 1
   fi
-  if ! { [ -n "$nsid" ] && wbch_pane_is_shell "$pane"; } && wbch_input_pending "$pane"; then
+  if wbch_input_blocked "$pane" "$nsid"; then
     echo "$WBCH_PENDING"
     return 1
   fi
@@ -764,11 +813,7 @@ wbch_release_one() {
     wb_continue_log release-wait "$stem" "$id" "$state" "not released: $reason"
     # A request whose session is gone is a leftover: its pane id may now be
     # another session's, so say nothing to the pane (--all: nothing at all).
-    if [ "$reason" = "the session is not running" ]; then
-      [ "$need" = cmd ] && return 2
-      echo "$stem: not released: $reason"
-      return 1
-    fi
+    [ "$need" = cmd ] && [ "$reason" = "the session is not running" ] && return 2
     echo "$stem: not released: $reason"
     return 1
   elif [ "$rc" = 2 ]; then
@@ -791,7 +836,7 @@ wbch_release_one() {
     ready | failed | armed) ;;
     *) _wbc_unlock "$stem"; echo "$stem: already restarting"; return 1 ;;
   esac
-  wbc_set release "$stem" claimed "released by Jet"
+  wbc_set release "$stem" claimed "released by Jet" released=1
   _wbc_unlock "$stem"
   wbch_pane_reason ""
   self="$(readlink -f "$WBCH_SRC" 2>/dev/null)" || self="$WBCH_SRC"

@@ -27,12 +27,13 @@
 # brings it to 0, and at 0 for one that begins armed. A release refuses above 0:
 # the session kept working after the save.
 # wb/continue/picked-up/<id> marks a request the fresh Claude's pick-up removed,
-# so the helper can tell that from a drop.
+# so the helper can tell that from a drop; pick-up sweeps markers over a day old.
+# released=1 marks a restart Jet released (picker, prefix+y), for the pick-up text.
 
 WBC_FIELDS=(id stem task_file state reason typed declined restart_born command
   session_id pane tmux_session model entry_sha entry_heading tip tree_sha
   worktree created updated new_session_id
-  last_stop last_busy effort permission_mode model_fallback stops_since_save)
+  last_stop last_busy effort permission_mode model_fallback stops_since_save released)
 
 wbc_dir() { printf '%s/%s\n' "$(wb_continue_state_root)" "$1"; }
 
@@ -173,8 +174,21 @@ wbc_drift_check() {
   return 0
 }
 
+# _wbc_stale_secs — how long a claimed or restarting request may go without an
+# update: WB_CONTINUE_STALE_SECS, else 300 s or the helper's own longest wait
+# (prompt timeout + pick-up timeout, defaults 20 and 120) plus 60 s, whichever
+# is longer, so a healthy helper is never demoted while it still waits.
+_wbc_stale_secs() {
+  if [[ "${WB_CONTINUE_STALE_SECS:-}" =~ ^[0-9]+$ ]]; then printf '%s\n' "$WB_CONTINUE_STALE_SECS"; return 0; fi
+  local p="${WB_CONTINUE_PROMPT_TIMEOUT:-20}" u="${WB_CONTINUE_PICKUP_TIMEOUT:-120}" n=300
+  [[ "$p" =~ ^[0-9]+$ ]] || p=20
+  [[ "$u" =~ ^[0-9]+$ ]] || u=120
+  [ $((p + u + 60)) -le "$n" ] || n=$((p + u + 60))
+  printf '%s\n' "$n"
+}
+
 # wbc_stale_demote <stem> — CALLER HOLDS continue-<stem>. A request claimed or
-# restarting whose last update is older than ${WB_CONTINUE_STALE_SECS:-300} s, or
+# restarting whose last update is older than _wbc_stale_secs, or
 # whose recorded pane is gone, lost its helper (a hard kill the exit trap cannot
 # see): log stale-claim and make it `failed`, naming the old session. Returns 0
 # when it demoted one.
@@ -184,7 +198,7 @@ wbc_stale_demote() {
   case "$state" in claimed|restarting) ;; *) return 1 ;; esac
   updated="$(wbc_get "$stem" updated)"
   pane="$(wbc_get "$stem" pane)"
-  if [[ "$updated" =~ ^[0-9]+$ ]] && age=$((EPOCHSECONDS - updated)) && [ "$age" -gt "${WB_CONTINUE_STALE_SECS:-300}" ]; then
+  if [[ "$updated" =~ ^[0-9]+$ ]] && age=$((EPOCHSECONDS - updated)) && [ "$age" -gt "$(_wbc_stale_secs)" ]; then
     why="no update for ${age}s"
   elif [ -n "$pane" ] && [ "$(tmux display-message -p -t "$pane" '#{pane_id}' 2>/dev/null)" != "$pane" ]; then
     why="its pane is gone"
@@ -211,6 +225,26 @@ _wbc_transcript() {
   _wbc_transcript_of "$CLAUDE_CODE_SESSION_ID"
 }
 
+# _wbc_last_opener <transcript> — the LAST user line with a turnOrigin: the
+# prompt that opened the current turn (tool results and skill bodies have none).
+_wbc_last_opener() {
+  grep -aF '"turnOrigin"' "$1" 2>/dev/null \
+    | jq -cR 'fromjson? | select(type == "object" and .type == "user" and (.turnOrigin != null))' 2>/dev/null \
+    | tail -n 1
+}
+
+# _wbc_human_turn_after <transcript> <epoch> — true when the turn that just
+# ended was opened by a person's prompt stamped later than <epoch>. Any doubt
+# (no transcript, no opener, no readable stamp): false.
+_wbc_human_turn_after() {
+  local last t
+  [ -r "$1" ] || return 1
+  last="$(_wbc_last_opener "$1")"
+  [ -n "$last" ] || return 1
+  t="$(printf '%s' "$last" | jq -r 'if .turnOrigin == "human" and .origin.kind == "human" then ((.timestamp // "") | sub("\\.[0-9]+Z$"; "Z") | try fromdateiso8601 catch empty) else empty end' 2>/dev/null)"
+  [[ "$t" =~ ^[0-9]+$ ]] && [ "$t" -gt "$2" ]
+}
+
 # _wbc_typed_info — sets WBC_TYPED (1 only when the prompt that opened the
 # current turn is a person's typed /wb-continue) and WBC_TYPED_ARGS (the raw
 # text between <command-args> and the last </command-args>). The opener is the
@@ -221,9 +255,7 @@ _wbc_typed_info() {
   local tr last kind turn content rest
   tr="$(_wbc_transcript)" || return 0
   [ -r "$tr" ] || return 0
-  last="$(grep -aF '"turnOrigin"' "$tr" 2>/dev/null \
-    | jq -cR 'fromjson? | select(type == "object" and .type == "user" and (.turnOrigin != null))' 2>/dev/null \
-    | tail -n 1)" || last=""
+  last="$(_wbc_last_opener "$tr")" || last=""
   [ -n "$last" ] || return 0
   turn="$(printf '%s' "$last" | jq -r '.turnOrigin // empty' 2>/dev/null)" || return 0
   kind="$(printf '%s' "$last" | jq -r '.origin.kind // empty' 2>/dev/null)" || return 0
@@ -359,8 +391,9 @@ _wbc_make() {
   elif [ "$typed" = 1 ]; then state=armed; reason="typed by Jet"
   elif [ "$born" = 1 ]; then state=ready; reason="a restart-born session cannot restart itself"
   else
-    _wbc_review_class "$raw_command"
-    case $? in
+    local class=0
+    _wbc_review_class "$raw_command" || class=$?
+    case $class in
       0) state=armed; reason="a code review, requested by the session" ;;
       2) state=ready; reason="the review command has arguments that are not read-only review options" ;;
       *) state=ready; reason="the command is not a code review" ;;
@@ -374,14 +407,14 @@ _wbc_make() {
   local id; id="$stem@$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
 
   # A fresh request: blank every field the old one may have set.
+  local rc=0
   rm -f "$dir/request"
   wbc_set "$verb" "$stem" "$state" "$reason" \
     "id=$id" "task_file=$task_file" "typed=$typed" "declined=$decline" "restart_born=$born" \
     "command=$command" "session_id=${CLAUDE_CODE_SESSION_ID:-}" "pane=$pane" "tmux_session=$tsess" \
     "model=$model" "entry_sha=$(printf '%s\n' "$entry" | _wbc_sha)" "entry_heading=$heading" \
     "tip=$(_wbc_tip "$wt")" "tree_sha=$(_wbc_tree_sha "$wt")" "worktree=$wt" "new_session_id=" \
-    "stops_since_save=$([ "$state" = armed ] && echo 0 || echo -1)"
-  local rc=$?
+    "stops_since_save=$([ "$state" = armed ] && echo 0 || echo -1)" || rc=$?
   _wbc_unlock "$stem"
   [ "$rc" = 0 ] || return "$rc"
   # A fresh save clears a refusal or failure reason the pane's status shows.
@@ -475,8 +508,8 @@ wbc_pickup() {
   heading="$(wbc_get "$stem" entry_heading)"
   ts="${heading#\#\#\# }"; ts="${ts%% — *}"
   old="$(wbc_get "$stem" session_id)"
-  local fallback typed
-  fallback="$(wbc_get "$stem" model_fallback)"; typed="$(wbc_get "$stem" typed)"
+  local fallback typed released
+  fallback="$(wbc_get "$stem" model_fallback)"; typed="$(wbc_get "$stem" typed)"; released="$(wbc_get "$stem" released)"
   local msg="Continued in a fresh context from the save of $ts"
   if [ -n "$old" ]; then msg+=" (old session $old; \`claude --resume $old\` reopens it)"; fi
   msg+="."
@@ -486,7 +519,11 @@ wbc_pickup() {
     _wbc_refuse_msg "could not write the Handoffs entry"; return 1
   fi
   wb_task_lock_release "$task_file"
-  mkdir -p "$(wb_continue_state_root)/picked-up" && : >"$(wb_continue_state_root)/picked-up/$id"
+  local marks; marks="$(wb_continue_state_root)/picked-up"
+  if mkdir -p "$marks"; then
+    find "$marks" -type f -mmin +1440 -delete 2>/dev/null || true
+    : >"$marks/$id" || true
+  fi
   wb_continue_drop_files "$stem" pickup "picked up by the fresh session"
   _wbc_unlock "$stem"
 
@@ -497,6 +534,7 @@ wbc_pickup() {
   echo "=== End of frozen save entry ==="
   if [ -n "$command" ]; then
     if [ "$typed" = 1 ]; then echo "Command source: typed by Jet"
+    elif [ "$released" = 1 ]; then echo "Command source: written by the saving session, not by Jet; Jet released the restart"
     else echo "Command source: written by the saving session, not by Jet"; fi
     echo "Command to carry out:"
     printf '%s\n' "$command"

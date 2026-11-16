@@ -593,6 +593,92 @@ assert_eq "the last turn holds an invalid byte: it is not typed by Jet (the olde
 assert_eq "... and the model is the last line's, not an earlier one" claude-opus-5-5 "$(wbc_get proj--bad1 model)"
 no_transcript
 
+# R1: the real wb.sh runs under errexit; a non-review save must still be recorded
+echo "# focused review: the arm verb under wb.sh's set -e"
+no_transcript
+arm_sub() { # <stem> <instruction> — wb.sh as a subprocess, errexit on; prints output then rc=N
+  local out rc
+  out="$(printf '%s' "$2" | bash "$WB" continue arm "$(tf "$1")" 2>&1)"; rc=$?
+  printf '%s\nrc=%s\n' "$out" "$rc"
+}
+mk_task proj--e1
+out="$(arm_sub proj--e1 '/ce-work')"
+assert "a non-review command: exit 0 through wb.sh" '^rc=0$' "$out"
+assert_eq "... recorded as ready" ready "$(state_of proj--e1)"
+assert_eq "... for the right reason" "the command is not a code review" "$(wbc_get proj--e1 reason)"
+assert "... and it says so" 'wb continue: ready — the command is not a code review' "$out"
+mk_task proj--e2
+out="$(arm_sub proj--e2 '/ce-code-review apply:local')"
+assert "a review with apply:local: exit 0 through wb.sh" '^rc=0$' "$out"
+assert_eq "... recorded as ready" ready "$(state_of proj--e2)"
+assert_eq "... for the right reason" "the review command has arguments that are not read-only review options" "$(wbc_get proj--e2 reason)"
+mk_task proj--e3
+out="$(arm_sub proj--e3 '/ce-code-review base:development')"
+assert "a read-only review: exit 0 through wb.sh" '^rc=0$' "$out"
+assert_eq "... armed" armed "$(state_of proj--e3)"
+# an arm over a staged request replaces it whole (the instruction and the id move together)
+mk_task proj--e4
+wbc_stage "$(tf proj--e4)" >/dev/null 2>&1
+id_e4="$(id_of proj--e4)"
+out="$(arm_sub proj--e4 'do some other work')"
+assert_eq "an arm over a staged request: a new id with the new command" "ready|do some other work" "$([ "$id_e4" != "$(id_of proj--e4)" ] && echo "$(state_of proj--e4)|$(wbc_get proj--e4 command)")"
+
+# R6: pick-up sweeps markers over a day old and keeps fresh ones
+echo "# focused review: pick-up markers"
+MARKS="$XDG_STATE_HOME/wb/continue/picked-up"
+mkdir -p "$MARKS"
+: >"$MARKS/old-marker"; touch -d '3 days ago' "$MARKS/old-marker"
+: >"$MARKS/fresh-marker"
+mk_task proj--k1
+wbc_stage "$(tf proj--k1)" >/dev/null 2>&1
+restarting proj--k1 "$SID_NEW"
+pickup_as "$SID_NEW" "$(id_of proj--k1)" >/dev/null
+assert_eq "a marker older than a day is swept by a pick-up" no "$([ -e "$MARKS/old-marker" ] && echo yes || echo no)"
+assert_eq "a fresh marker stays" yes "$([ -e "$MARKS/fresh-marker" ] && echo yes || echo no)"
+assert_eq "the pick-up's own marker is there" yes "$([ -e "$MARKS/$(grep -o 'id=proj--k1@[0-9a-f]*' "$XDG_STATE_HOME/wb/continue.log" | tail -1 | cut -d= -f2)" ] && echo yes || echo no)"
+rm -f "$MARKS/fresh-marker"
+
+# R7: the stale threshold is never shorter than the helper's own waits
+echo "# focused review: the stale-claim threshold"
+assert_eq "default threshold" 300 "$(_wbc_stale_secs)"
+assert_eq "a raised pick-up timeout raises it" 780 "$(WB_CONTINUE_PICKUP_TIMEOUT=700 _wbc_stale_secs)"
+assert_eq "so does a raised prompt timeout" 400 "$(WB_CONTINUE_PROMPT_TIMEOUT=300 WB_CONTINUE_PICKUP_TIMEOUT=40 _wbc_stale_secs)"
+assert_eq "a short pick-up timeout does not lower it" 300 "$(WB_CONTINUE_PICKUP_TIMEOUT=10 _wbc_stale_secs)"
+assert_eq "an explicit WB_CONTINUE_STALE_SECS wins, even when shorter" 5 "$(WB_CONTINUE_STALE_SECS=5 WB_CONTINUE_PICKUP_TIMEOUT=700 _wbc_stale_secs)"
+stale_after() { # <stem> <age secs> [env assignments...] — demote status of a restarting request that old
+  local stem="$1" age="$2"; shift 2
+  mk_task "$stem"; wbc_stage "$(tf "$stem")" >/dev/null 2>&1; restarting "$stem" "$SID_NEW"
+  sed -i "s/^updated=.*/updated=$((EPOCHSECONDS - age))/" "$XDG_STATE_HOME/wb/continue/$stem/request"
+  (
+    for a in "$@"; do export "${a?}"; done
+    _wbc_lock "$stem"; wbc_stale_demote "$stem"; _wbc_unlock "$stem"
+  ) >/dev/null 2>&1
+  state_of "$stem"
+}
+assert_eq "a request 400 s old with the default threshold: demoted" failed "$(stale_after proj--t1 400 X=1)"
+assert_eq "the same age with a raised pick-up timeout: still restarting" restarting "$(stale_after proj--t2 400 WB_CONTINUE_PICKUP_TIMEOUT=600)"
+assert_eq "a request older than the raised threshold: demoted" failed "$(stale_after proj--t3 800 WB_CONTINUE_PICKUP_TIMEOUT=600)"
+
+# R10: the pick-up says when Jet released the restart
+echo "# focused review: pick-up provenance"
+mk_task proj--q1
+printf 'a plan the session wrote' | wbc_arm "$(tf proj--q1)" >/dev/null 2>&1
+_wbc_lock proj--q1; wbc_set test proj--q1 restarting test "new_session_id=$SID_NEW" released=1; _wbc_unlock proj--q1
+out="$(pickup_as "$SID_NEW" "$(id_of proj--q1)")"
+assert_eq "a released session-written command: the line says Jet released the restart" "Command source: written by the saving session, not by Jet; Jet released the restart|Command to carry out:|a plan the session wrote" "$(printf '%s\n' "$out" | awk '/^Command source:/{f=1} f' | paste -sd'|')"
+mk_task proj--q2
+{ tr_user human "$(typed_prompt 'do the typed thing')"; } > "$T"; use_transcript
+wbc_arm "$(tf proj--q2)" </dev/null >/dev/null 2>&1
+no_transcript
+_wbc_lock proj--q2; wbc_set test proj--q2 restarting test "new_session_id=$SID_NEW" released=1; _wbc_unlock proj--q2
+out="$(pickup_as "$SID_NEW" "$(id_of proj--q2)")"
+assert "a released typed command is still labelled typed by Jet" '^Command source: typed by Jet$' "$out"
+refute "... with no release note" 'released the restart' "$out"
+mk_task proj--q3
+printf 'a plan the session wrote' | wbc_arm "$(tf proj--q3)" >/dev/null 2>&1
+restarting proj--q3 "$SID_NEW"
+assert "an unreleased session-written command keeps the old line" '^Command source: written by the saving session, not by Jet$' "$(pickup_as "$SID_NEW" "$(id_of proj--q3)")"
+
 # the call sites are in the verbs themselves
 for v in cmd_pause cmd_down cmd_done cmd_restart; do
   assert "$v calls wb_continue_drop" 'wb_continue_drop ' "$(declare -f "$v")"

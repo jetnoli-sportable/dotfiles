@@ -80,7 +80,10 @@ command is not a code review". What you typed is never checked this way: any
 The fresh Claude is told who wrote the command: its pick-up prints a `Command
 source:` line, "typed by Jet" for your words or "written by the saving session,
 not by Jet" for the session's own plan, which it carries out as written without
-treating it as something you said.
+treating it as something you said. When you released the restart yourself
+(<kbd>c</kbd>, <kbd>C</kbd>, <kbd>prefix</kbd> <kbd>y</kbd>) for a session-written
+command, the line adds "; Jet released the restart": you approved the restart,
+not the words. Only the line directly above "Command to carry out:" counts.
 
 A script decides the row, never the session: it reads the transcript's record of
 the prompt that opened the turn. A cron job, a task notification, a message from
@@ -105,6 +108,11 @@ locked request or a missing turn-end record, tells you why in the tmux message
 (or the picker's line) and in `continue.log`, and leaves the status line alone:
 waiting is not a failure, so the yellow mark never shows for it.
 
+A release of a saved (not armed) request that waits on background work says "background
+work was still running at the last turn end; when it finishes, save again": the work's
+own turn end would count as the session working on after the save, so the release would
+then be refused.
+
 A release also waits, with "no turn end was recorded since the save (is the
 wb-continue hook loaded?)", when the Stop hook has not recorded a turn end for the
 save yet; without that record it can't tell whether background work is running.
@@ -117,14 +125,24 @@ fresh Claude would start from an older save and silently drop those turns (the
 old session is still there with `claude --resume <old-id>`). Run `/wb-save`
 again, then release. A request that was armed and waited through turn ends for
 background work is not counted against this: those turn ends belong to the same
-continue. Only a refusal or a failed restart shows as a yellow `↻N` in the status
+continue. A turn *you* open while an armed request waits does count: the next turn
+end refuses the request with the same reason (it never restarts a session you kept
+working in), and you save again. A background task's notification turn or other
+non-human turn doesn't. Only a refusal or a failed restart shows as a yellow `↻N` in the status
 line (its reason is on the pane, and the row's reason in the picker); the next
 save in that pane clears it. `/clear` then `/wb-resume` always works as before.
 
 A restart that began but never finished (the helper was killed, or its pane is
-gone) stops blocking after five minutes: the next save or release turns it into a
-failed request naming the old session, and a failed request can be released
-again once the pane is back at a shell.
+gone) stops blocking after five minutes (longer if you raised the prompt or pick-up
+timeouts: never shorter than the helper's own waits plus a minute): the next save or
+release turns it into a failed request naming the old session, and a failed request can
+be released again. A request that already respawned its pane keeps the fresh session's
+id through any wait, so it stays releasable: the release accepts the fresh Claude, the
+Claude that saved (a helper killed before the respawn) or none, never another Claude.
+
+A pane at a plain shell is free to restart only when that shell has no child process:
+a script, a loop or a background job in it blocks the release ("a command is still
+running in the pane's shell"). Text typed after a bare shell prompt is not detected.
 
 ## Output you missed
 
