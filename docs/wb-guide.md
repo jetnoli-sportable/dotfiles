@@ -643,6 +643,12 @@ directory only. An entry that matches neither list, and isn't covered by the
 repo's `.worktree-bootstrap`, is *unknown* and stops `wb done` until you add a
 rule or pass `--keep <path>` or `--throwaway <path>` for that run.
 
+Rules that name one repo's own paths (a work repo's test fixtures, a stray
+file at its root) go in this machine's local list instead,
+`~/.config/wb/sweep.local.list`, in the same format. It isn't part of the
+dotfiles repo, so those paths never get committed here; `wb done` reads it
+after `wb-done-sweep.list`.
+
 ## The task store
 
 `~/code/tasks` is a plain git repo pushed to a personal GitHub remote

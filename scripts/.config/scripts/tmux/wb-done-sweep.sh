@@ -8,10 +8,23 @@
 
 # wb_sweep_lists — print the `wb done` sweep rules as `keep<TAB>glob` /
 # `throwaway<TAB>glob`, from wb-done-sweep.list next to wb.sh (resolved through
-# symlinks, since the stowed script is a link). $WB_SWEEP_LIST overrides the
-# path for tests.
+# symlinks, since the stowed script is a link), then from this machine's own
+# list, ~/.config/wb/sweep.local.list. The local list is never committed, so
+# rules naming one repo's paths stay out of the dotfiles repo. $WB_SWEEP_LIST
+# and $WB_SWEEP_LOCAL_LIST override the paths for tests; setting only
+# $WB_SWEEP_LIST skips the local list, so a test never reads the real one.
 wb_sweep_lists() {
   local list="${WB_SWEEP_LIST:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/wb-done-sweep.list}"
+  local local_list="${WB_SWEEP_LOCAL_LIST-}"
+  [ -n "$local_list" ] || [ -n "${WB_SWEEP_LIST-}" ] ||
+    local_list="${XDG_CONFIG_HOME:-$HOME/.config}/wb/sweep.local.list"
+  _wb_sweep_read_list "$list"
+  [ -z "$local_list" ] || _wb_sweep_read_list "$local_list"
+  return 0
+}
+
+_wb_sweep_read_list() {
+  local list="$1"
   [ -f "$list" ] || return 0
   local line cls glob
   while IFS= read -r line || [ -n "$line" ]; do
