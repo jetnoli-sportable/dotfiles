@@ -287,11 +287,23 @@ LIST
 WB_SWEEP_LIST="$FIXTURE/test.list" wb_sweep_lists > "$FIXTURE/lists.out"
 assert_eq "list loader: comments, blanks, trailing spaces" \
   "$(printf 'keep\t.claude-queue.md\nthrowaway\tnode_modules/\nthrowaway\t*.log')" "$(cat "$FIXTURE/lists.out")"
+printf 'throwaway:repo/fixtures/\n# a comment\nkeep:notes.local\n' > "$FIXTURE/local.list"
+out="$(WB_SWEEP_LIST="$FIXTURE/test.list" WB_SWEEP_LOCAL_LIST="$FIXTURE/local.list" wb_sweep_lists)"
+assert_eq "local list: its rules follow the main list's" \
+  "$(printf 'keep\t.claude-queue.md\nthrowaway\tnode_modules/\nthrowaway\t*.log\nthrowaway\trepo/fixtures/\nkeep\tnotes.local')" "$out"
+mkdir -p "$FIXTURE/xdg/wb"; printf 'throwaway:leaked.pkl\n' > "$FIXTURE/xdg/wb/sweep.local.list"
+out="$(XDG_CONFIG_HOME="$FIXTURE/xdg" WB_SWEEP_LIST="$FIXTURE/test.list" wb_sweep_lists)"
+assert_eq "local list: skipped when only WB_SWEEP_LIST is set" "$(cat "$FIXTURE/lists.out")" "$out"
+out="$(XDG_CONFIG_HOME="$FIXTURE/xdg" wb_sweep_lists)"
+assert "local list: read from \$XDG_CONFIG_HOME/wb/sweep.local.list by default" $'throwaway\tleaked.pkl' "$out"
+out="$(WB_SWEEP_LIST="$FIXTURE/test.list" WB_SWEEP_LOCAL_LIST="$FIXTURE/no-such.list" wb_sweep_lists)"
+assert_eq "local list: a missing file adds nothing" "$(cat "$FIXTURE/lists.out")" "$out"
 real="$(wb_sweep_lists)"
 assert "real list file seeds keep CLAUDE.local.md" $'keep\tCLAUDE.local.md' "$real"
 assert "real list file seeds throwaway __pycache__/" $'throwaway\t__pycache__/' "$real"
 assert "real list file seeds throwaway .pytest_cache/" $'throwaway\t.pytest_cache/' "$real"
 assert "real list file seeds throwaway .mypy_cache/" $'throwaway\t.mypy_cache/' "$real"
+assert "real list file seeds throwaway .ruff_cache/" $'throwaway\t.ruff_cache/' "$real"
 
 # --- #5: one bootstrap-manifest parse for wb new and the sweep
 BR="$FIXTURE/bootparse"; mkdir -p "$BR/repo" "$BR/wt"

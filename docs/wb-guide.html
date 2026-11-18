@@ -896,6 +896,11 @@ matches the whole path from the worktree root, and a trailing <code>/</code> mat
 directory only. An entry that matches neither list, and isn't covered by the
 repo's <code>.worktree-bootstrap</code>, is <em>unknown</em> and stops <code>wb done</code> until you add a
 rule or pass <code>--keep &lt;path&gt;</code> or <code>--throwaway &lt;path&gt;</code> for that run.</p>
+<p>Rules that name one repo's own paths (a work repo's test fixtures, a stray
+file at its root) go in this machine's local list instead,
+<code>~/.config/wb/sweep.local.list</code>, in the same format. It isn't part of the
+dotfiles repo, so those paths never get committed here; <code>wb done</code> reads it
+after <code>wb-done-sweep.list</code>.</p>
 <h2 id="the-task-store">The task store</h2>
 <p><code>~/code/tasks</code> is a plain git repo pushed to a personal GitHub remote
 (recovered and given its first-ever remote after the 2026-07-10
