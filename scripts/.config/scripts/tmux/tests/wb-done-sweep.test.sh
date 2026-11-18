@@ -304,6 +304,8 @@ assert "real list file seeds throwaway __pycache__/" $'throwaway\t__pycache__/' 
 assert "real list file seeds throwaway .pytest_cache/" $'throwaway\t.pytest_cache/' "$real"
 assert "real list file seeds throwaway .mypy_cache/" $'throwaway\t.mypy_cache/' "$real"
 assert "real list file seeds throwaway .ruff_cache/" $'throwaway\t.ruff_cache/' "$real"
+assert "real list file seeds throwaway .terraform/" $'throwaway\t.terraform/' "$real"
+assert "real list file seeds throwaway .terraform.lock.hcl" $'throwaway\t.terraform.lock.hcl' "$real"
 
 # --- #5: one bootstrap-manifest parse for wb new and the sweep
 BR="$FIXTURE/bootparse"; mkdir -p "$BR/repo" "$BR/wt"
