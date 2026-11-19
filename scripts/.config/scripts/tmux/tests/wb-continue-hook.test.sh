@@ -1551,6 +1551,8 @@ fresh_transcript() { # <fresh-id> <request-id> <extra user kind or none> — the
     case "$3" in
       human) tr_user human "now do something else" ;;
       task-notification) tr_user task-notification "<task-notification>done</task-notification>" ;;
+      queued-human) jq -nc '{type:"attachment",attachment:{type:"queued_command",commandMode:"prompt",prompt:"and also check this",origin:{kind:"human"}}}' ;;
+      queued-peer) jq -nc '{type:"attachment",attachment:{type:"queued_command",commandMode:"prompt",prompt:"a message from another session",origin:{kind:"peer"}}}' ;;
     esac
   } >"$f"
 }
@@ -1589,6 +1591,32 @@ echo pickup >"$FIX/claude-mode"
 out="$(wbc_release "$(tf "$STEM")" 2>&1)"
 assert "A1: launch prompt plus a task-notification opener: released" "$STEM: released" "$out"
 wait_gone "$STEM" 15
+end_case
+
+fail_after_respawn sit
+fresh_transcript "$FRESH" "$(wbc_get "$STEM" id)" queued-human
+echo pickup >"$FIX/claude-mode"
+: >"$TMUX_LOG"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "A1: a prompt Jet typed mid-turn (queued): refused" "refused: the restarted session was used; save again there" "$out"
+refute "A1: queued: nothing respawned" 'respawn-pane' "$(tlog)"
+end_case
+
+fail_after_respawn sit
+fresh_transcript "$FRESH" "$(wbc_get "$STEM" id)" queued-peer
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "A1: a queued message from another session: released" "$STEM: released" "$out"
+wait_gone "$STEM" 15
+end_case
+
+fail_after_respawn sit
+fresh_transcript "$FRESH" "$(wbc_get "$STEM" id)" none
+chmod 000 "$HOME/.claude/projects/proj/$FRESH.jsonl"
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+chmod 600 "$HOME/.claude/projects/proj/$FRESH.jsonl"
+assert "A1: an unreadable transcript: refused" "refused: the restarted session was used; save again there" "$out"
 end_case
 
 fail_after_respawn sit

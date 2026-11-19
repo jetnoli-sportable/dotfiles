@@ -245,15 +245,19 @@ _wbc_human_turn_after() {
   [[ "$t" =~ ^[0-9]+$ ]] && [ "$t" -gt "$2" ]
 }
 
-# _wbc_used_beyond_launch <transcript> <request-id> — 0 when a person opened a
-# turn in that session other than the pick-up launch prompt (`/wb-resume
-# --continue <request-id>`), 1 when not, 2 when the transcript cannot be read.
+# _wbc_used_beyond_launch <transcript> <request-id> — 0 when a person sent that
+# session a prompt other than the pick-up launch prompt (`/wb-resume --continue
+# <request-id>`), 1 when not, 2 when the transcript cannot be read. A prompt
+# typed while a turn runs has no turnOrigin: it is a queued_command attachment.
 _wbc_used_beyond_launch() {
   local out
   [ -r "$1" ] || return 2
-  out="$(grep -aF '"turnOrigin"' "$1" 2>/dev/null \
-    | jq -nR --arg id "$2" 'any(inputs | fromjson? | select(type == "object" and .type == "user" and .turnOrigin == "human" and .origin.kind == "human")
-        | (.message.content | if type == "string" then . elif type == "array" then [.[]? | select(type == "object") | (.text? // empty)] | join("\n") else "" end)
+  out="$(grep -aE '"turnOrigin"|"queued_command"' "$1" 2>/dev/null \
+    | jq -nR --arg id "$2" 'any(inputs | fromjson? | select(type == "object")
+        | if .type == "user" and .turnOrigin == "human" and .origin.kind == "human" then .message.content
+          elif .type == "attachment" and .attachment.type? == "queued_command" and .attachment.origin.kind? == "human" then .attachment.prompt
+          else empty end
+        | (if type == "string" then . elif type == "array" then [.[]? | select(type == "object") | (.text? // empty)] | join("\n") else "" end)
         | select((contains("/wb-resume") and contains("--continue " + $id)) | not); true)' 2>/dev/null)"
   case "$out" in true) return 0 ;; false) return 1 ;; *) return 2 ;; esac
 }

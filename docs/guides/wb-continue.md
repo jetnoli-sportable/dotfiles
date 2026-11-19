@@ -140,7 +140,8 @@ be released again. A request that already respawned its pane keeps the fresh ses
 id through any wait, so it stays releasable: the release accepts the fresh Claude, the
 Claude that saved (a helper killed before the respawn) or none, never another Claude.
 A release also refuses when the restarted Claude has been used: if its transcript
-shows a turn you opened other than the pick-up prompt, the request is refused with
+shows a prompt you sent other than the pick-up prompt (a turn you opened, or a
+message you typed while it was working), the request is refused with
 "the restarted session was used; save again there", so a release never kills a
 Claude you have been working in.
 
