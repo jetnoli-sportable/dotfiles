@@ -139,6 +139,10 @@ release turns it into a failed request naming the old session, and a failed requ
 be released again. A request that already respawned its pane keeps the fresh session's
 id through any wait, so it stays releasable: the release accepts the fresh Claude, the
 Claude that saved (a helper killed before the respawn) or none, never another Claude.
+A release also refuses when the restarted Claude has been used: if its transcript
+shows a turn you opened other than the pick-up prompt, the request is refused with
+"the restarted session was used; save again there", so a release never kills a
+Claude you have been working in.
 
 A pane at a plain shell is free to restart only when that shell has no child process:
 a script, a loop or a background job in it blocks the release ("a command is still

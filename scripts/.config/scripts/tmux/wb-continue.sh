@@ -245,6 +245,19 @@ _wbc_human_turn_after() {
   [[ "$t" =~ ^[0-9]+$ ]] && [ "$t" -gt "$2" ]
 }
 
+# _wbc_used_beyond_launch <transcript> <request-id> — 0 when a person opened a
+# turn in that session other than the pick-up launch prompt (`/wb-resume
+# --continue <request-id>`), 1 when not, 2 when the transcript cannot be read.
+_wbc_used_beyond_launch() {
+  local out
+  [ -r "$1" ] || return 2
+  out="$(grep -aF '"turnOrigin"' "$1" 2>/dev/null \
+    | jq -nR --arg id "$2" 'any(inputs | fromjson? | select(type == "object" and .type == "user" and .turnOrigin == "human" and .origin.kind == "human")
+        | (.message.content | if type == "string" then . elif type == "array" then [.[]? | select(type == "object") | (.text? // empty)] | join("\n") else "" end)
+        | select((contains("/wb-resume") and contains("--continue " + $id)) | not); true)' 2>/dev/null)"
+  case "$out" in true) return 0 ;; false) return 1 ;; *) return 2 ;; esac
+}
+
 # _wbc_typed_info — sets WBC_TYPED (1 only when the prompt that opened the
 # current turn is a person's typed /wb-continue) and WBC_TYPED_ARGS (the raw
 # text between <command-args> and the last </command-args>). The opener is the

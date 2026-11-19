@@ -1542,6 +1542,70 @@ stage_req
 assert "R8: the saving Claude is live and kept working: refused" "refused: the session kept working after the save" "$(wbc_release "$(tf "$STEM")" 2>&1)"
 end_case
 
+# A1: a release refuses when the restarted Claude was used
+launch_prompt() { printf '<command-message>wb-resume</command-message>\n<command-name>/wb-resume</command-name>\n<command-args>--continue %s</command-args>' "$1"; }
+fresh_transcript() { # <fresh-id> <request-id> <extra user kind or none> — the launch prompt, then maybe one more opener
+  local f="$HOME/.claude/projects/proj/$1.jsonl"
+  mkdir -p "$HOME/.claude/projects/proj"
+  { tr_user human "$(launch_prompt "$2")"
+    case "$3" in
+      human) tr_user human "now do something else" ;;
+      task-notification) tr_user task-notification "<task-notification>done</task-notification>" ;;
+    esac
+  } >"$f"
+}
+fail_after_respawn sit
+A1_ID="$(wbc_get "$STEM" id)"
+fresh_transcript "$FRESH" "$A1_ID" human
+echo pickup >"$FIX/claude-mode"
+: >"$TMUX_LOG"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "A1: a restarted Claude Jet used: refused" "refused: the restarted session was used; save again there" "$out"
+assert_eq "A1: state refused" refused "$(state_of "$STEM")"
+assert "A1: the pane reason is set" "restarted session was used" "$(tm show -pv -t "$PANE" @wb_continue_reason 2>/dev/null; reason_of "$STEM")"
+refute "A1: nothing respawned" 'respawn-pane' "$(tlog)"
+end_case
+
+fail_after_respawn sit
+fresh_transcript "$FRESH" "$(wbc_get "$STEM" id)" none
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "A1: only the launch prompt: released" "$STEM: released" "$out"
+wait_gone "$STEM" 15
+assert_eq "A1: ... and picked up" 0 "$?"
+end_case
+
+fail_after_respawn sit
+rm -f "$HOME/.claude/projects/proj/$FRESH.jsonl"
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "A1: no transcript yet: released" "$STEM: released" "$out"
+wait_gone "$STEM" 15
+end_case
+
+fail_after_respawn sit
+fresh_transcript "$FRESH" "$(wbc_get "$STEM" id)" task-notification
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "A1: launch prompt plus a task-notification opener: released" "$STEM: released" "$out"
+wait_gone "$STEM" 15
+end_case
+
+fail_after_respawn sit
+A1_USED="$STEM"
+fresh_transcript "$FRESH" "$(wbc_get "$STEM" id)" human
+fail_after_respawn sit
+A1_OK="$STEM"
+fresh_transcript "$FRESH" "$(wbc_get "$STEM" id)" none
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release --all 2>&1)"
+assert "A1 --all: the used one is refused" "$A1_USED: refused: the restarted session was used; save again there" "$out"
+assert "A1 --all: the other is released" "$A1_OK: released" "$out"
+wait_gone "$A1_OK" 15
+assert_eq "A1 --all: the used request stays refused" refused "$(state_of "$A1_USED")"
+tm kill-session -t "wbch-s$(( N - 1 ))" 2>/dev/null
+end_case
+
 # R9: the background-work wait says what happens next
 new_case
 stage_req

@@ -726,7 +726,7 @@ wbch_helper() {
 # not there), 2 when the save itself no longer holds (drift, or the session kept
 # working after it: the request is refused). Reuses the helper's own input-line, drift and pane-Claude checks.
 wbch_release_check() {
-  local stem="$1" pane tsess tf busy stop nsid=""
+  local stem="$1" pane tsess tf busy stop nsid="" tsc used=1
   nsid="$(wbc_get "$stem" new_session_id)"
   pane="$(wbc_get "$stem" pane)"
   tf="$(wbc_get "$stem" task_file)"
@@ -742,6 +742,13 @@ wbch_release_check() {
         && [ "$(wbc_get "$stem" stops_since_save)" -gt 0 ] 2>/dev/null; then
         echo "the session kept working after the save; save again"
         return 2
+      fi
+      if [ -n "$nsid" ] && wbch_pane_claude_is "$pane" "$nsid"; then
+        tsc="$(_wbc_transcript_of "$nsid")" && { _wbc_used_beyond_launch "$tsc" "$(wbc_get "$stem" id)" && used=0 || used=$?; }
+        if [ "$used" != 1 ]; then
+          echo "the restarted session was used; save again there"
+          return 2
+        fi
       fi
       ;;
   esac
