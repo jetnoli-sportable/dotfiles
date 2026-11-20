@@ -207,6 +207,25 @@ assert_eq "its line has the new pane and the first checksum" "yes $sha3" \
 wait "$w6"
 rm -f "$NY"
 
+# A path with a space: a re-run reuses the open split (the pane is tagged with
+# @wb_decide_file and compared exactly, not matched inside tmux's escaped start command).
+ans4="$FIX/answers 4.md"; echo "Q4: spaced?" > "$ans4"
+nvim_secs 3
+TMUX_PANE="$P" wb decide-buffer "$ans4" > "$FIX/out-sp1" 2>&1 &
+wsp1=$!
+wait_until 5 has_panes proj--dec 2
+assert_eq "spaced path: opens one split" 2 "$(panes proj--dec)"
+split4="$(tmux list-panes -t "=proj--dec:" -F '#{pane_id}' | grep -vxF "$P")"
+assert_eq "spaced path: the split is tagged with the file" "$ans4" "$(tmux show-options -p -v -t "$split4" @wb_decide_file)"
+TMUX_PANE="$P" wb decide-buffer "$ans4" > "$FIX/out-sp2" 2>&1 &
+wsp2=$!
+sleep 1
+assert_eq "spaced path: a re-run opens no second split" 2 "$(panes proj--dec)"
+assert_eq "spaced path: and is still waiting" yes "$(kill -0 "$wsp2" 2>/dev/null && echo yes || echo no)"
+wait "$wsp1"; wait "$wsp2"
+assert_eq "spaced path: both report the same" "$(cat "$FIX/out-sp1")" "$(cat "$FIX/out-sp2")"
+rm -f "$NY"
+
 # --- decide-open and decide-clear --------------------------------------------------------
 printf 'buffer %s %%99 %s\n' "$ans" "$sha1" > "$NY"
 TMUX_PANE="$P" wb decide-open page https://example.test/artifact/x r1
