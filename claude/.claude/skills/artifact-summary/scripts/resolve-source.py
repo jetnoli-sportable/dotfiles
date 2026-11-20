@@ -7,6 +7,9 @@ Prints one JSON object:
   {"via": "local" | "dossier" | "artifact",
    "read": <path to read, or the link for the Artifact tool>,
    "html": <rendered .html path, when there is one>,
+   "md_newer_than_html": <true when the .md was edited after the .html was rendered,
+                          so the .md is ahead of the published page; only set when
+                          the .md beside an .html was picked>,
    "entry": <the INDEX.toml entry's title/job/role, when one matched>,
    "note": <why this source was picked>}
 
@@ -46,15 +49,19 @@ def generated_elsewhere(entry):
     return bool(source) and not re.search(r"(?<![\w])md2html\.py", source)
 
 
-def best_local(html, entry):
-    md = html.with_suffix(".md")
-    if html.suffix == ".md":
-        return html, "the Markdown source itself"
-    if entry and generated_elsewhere(entry):
-        return html, f"built by {entry['source']}; the .md lacks the generated parts"
+def best_local(path, entry):
+    """Return (file to read, note, extra fields) for a page path (.html or .md)."""
+    html = path.with_suffix(".html")
+    md = path.with_suffix(".md")
+    if entry and generated_elsewhere(entry) and html.exists():
+        return html, f"built by {entry['source']}; the .md lacks the generated parts", {}
+    if path.suffix == ".md":
+        return path, "the Markdown source itself", {}
     if md.exists():
-        return md, "the Markdown source beside the HTML"
-    return html, "no Markdown source beside it; read the HTML"
+        # the .md is ahead of the rendered page when it was edited after the render
+        newer = md.stat().st_mtime > html.stat().st_mtime
+        return md, "the Markdown source beside the HTML", {"md_newer_than_html": newer}
+    return path, "no Markdown source beside it; read the HTML", {}
 
 
 def entry_for_file(path):
@@ -79,9 +86,9 @@ def main(arg):
                 html = DOSSIERS / entry["file"]
                 # an entry's `file` may name a whole directory ("dir/"); only a page will do
                 if html.is_file():
-                    read, note = best_local(html, entry)
+                    read, note, extra = best_local(html, entry)
                     return {"via": "dossier", "read": str(read), "html": str(html),
-                            "entry": entry_summary(entry), "note": note}
+                            "entry": entry_summary(entry), "note": note, **extra}
         return {"via": "artifact", "read": arg,
                 "note": "not listed in any dossier INDEX.toml; use the Artifact tool's read"}
 
@@ -92,8 +99,8 @@ def main(arg):
         return {"via": "none", "read": arg,
                 "note": "a directory, not a page; name one of its .html or .md files"}
     entry = entry_for_file(path)
-    read, note = best_local(path, entry)
-    out = {"via": "local", "read": str(read), "note": note}
+    read, note, extra = best_local(path, entry)
+    out = {"via": "local", "read": str(read), "note": note, **extra}
     if path.suffix == ".html":
         out["html"] = str(path)
     if entry:

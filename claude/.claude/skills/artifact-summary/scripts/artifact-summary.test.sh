@@ -67,6 +67,16 @@ expect "listed link, plain md2html: reads the .md" "$out" read "$DOSSIERS/fam/pl
 out="$(resolve https://claude.ai/code/artifact/LADDERID)"
 expect "listed link, own generator: reads the .html" "$out" read "$DOSSIERS/fam/ladder.html"
 
+out="$(resolve "$DOSSIERS/fam/ladder.md")"
+expect "generated page: a local .md path resolves to the .html" "$out" read "$DOSSIERS/fam/ladder.html"
+
+touch -d '2020-01-01' "$DOSSIERS/fam/plan.html"
+out="$(resolve "$DOSSIERS/fam/plan.html")"
+expect "md edited after the render: md_newer_than_html true" "$out" md_newer_than_html True
+touch -d '2030-01-01' "$DOSSIERS/fam/plan.html"
+out="$(resolve "$DOSSIERS/fam/plan.html")"
+expect "html rendered after the md: md_newer_than_html false" "$out" md_newer_than_html False
+
 out="$(resolve https://claude.ai/artifact/UNLISTED)"
 expect "unlisted link falls back to the Artifact read" "$out" via artifact
 
