@@ -143,4 +143,42 @@ run session-start '{"source":"startup"}'
 assert_eq "SessionStart(startup) clears a dead process's turn and agents" "" "$(opt @claude_working)"
 assert_eq "SessionStart(startup) removes stale agent markers" "" "$(opt @claude_agent_a1)"
 
+# Stop and SubagentStop landing together: the per-pane flock serialises them.
+# Hold the lock ourselves, start both hooks so each is parked on it, then release.
+# Whatever order they take it in, the last subagent is gone and the turn over, so
+# @claude_working must end unset (not stuck at 1 from one hook reading the
+# other's marker before it was cleared).
+reset_pane; run start; agent agent-start a1
+LOCKFILE="$ROOT/claude-notify-hook-${PANE#%}.lock"
+(
+  exec 9>>"$LOCKFILE"; flock 9
+  sleep 0.7
+) &
+holder=$!
+sleep 0.2
+run done & p1=$!
+agent agent-stop a1 & p2=$!
+sleep 0.2
+assert_eq "both hooks wait while the pane lock is held" "1" "$(opt @claude_working)"
+wait "$holder"; wait "$p1"; wait "$p2"
+assert_eq "simultaneous Stop and SubagentStop: not stuck working" "" "$(opt @claude_working)"
+assert_eq "simultaneous Stop and SubagentStop: turn marker cleared" "" "$(opt @claude_turn)"
+assert_eq "simultaneous Stop and SubagentStop: agent marker cleared" "" "$(opt @claude_agent_a1)"
+
+# SessionStart's cleanup loop must clear only its own pane. Make a second pane
+# (it becomes the window's active pane, so an untargeted tmux call would hit it)
+# holding live markers, then run the hook for the first pane.
+PANE2="$("$REALBIN/tmux" split-window -d -P -F '#{pane_id}' -t cnh 'sleep 600')"
+"$REALBIN/tmux" select-pane -t "$PANE2"
+reset_pane; run start; agent agent-start a1
+"$REALBIN/tmux" set -p -t "$PANE2" @claude_turn 1
+"$REALBIN/tmux" set -p -t "$PANE2" @claude_agent_b1 "$(date +%s)"
+"$REALBIN/tmux" set -p -t "$PANE2" @claude_working 1
+run session-start '{"source":"startup"}'
+assert_eq "SessionStart cleanup clears its own pane's agents" "" "$(opt @claude_agent_a1)"
+assert_eq "SessionStart cleanup clears its own pane's turn" "" "$(opt @claude_turn)"
+assert_eq "SessionStart cleanup leaves another pane's turn" 1 "$("$REALBIN/tmux" show -pv -t "$PANE2" @claude_turn)"
+assert_eq "SessionStart cleanup leaves another pane's agent marker" 1 "$([ -n "$("$REALBIN/tmux" show -pv -t "$PANE2" @claude_agent_b1)" ] && echo 1)"
+assert_eq "SessionStart cleanup leaves another pane's working flag" 1 "$("$REALBIN/tmux" show -pv -t "$PANE2" @claude_working)"
+
 [ "$fail" = 0 ] && echo "ALL PASSED" || { echo "FAILED"; exit 1; }
