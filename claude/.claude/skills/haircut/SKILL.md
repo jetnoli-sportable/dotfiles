@@ -84,7 +84,7 @@ Each added or changed comment gets one of three outcomes.
 
   ```tmux
   # Open the task picker
-  bind t run-shell "wb pick"
+  bind m new-window -c "$HOME" "~/.config/scripts/tmux/wb.sh"
   ```
 
 - docgen takes a `.sh` script's first comment line after the shebang as its
