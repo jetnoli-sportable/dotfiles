@@ -12,7 +12,7 @@ Trivial decisions (one obvious option, yes/no with an obvious default) and a sin
 
 When setting up a new worktree (via `ce-worktree`, `wb new`, or otherwise) for a branch/ticket, first check the central task store at `~/code/tasks/` for an existing task file matching the target repo and name/ticket number — filter by the `repo:` frontmatter field (the repo's basename), then match the slug. Task filenames are `<repo>--<slug>.md` where the slug has `/` and `.` sanitized to `-` (e.g. repo `be--monorepo`, branch `feat/sfb-1062-…` → look for `~/code/tasks/be--monorepo--feat-sfb-1062-*.md`). If one exists, read it and use it as the starting point/context for the work — it often already captures the problem, the intended fix, and prior decisions. Surface what you found rather than starting from scratch. If none matches, proceed normally.
 
-(Superseded the older per-repo `scratch/tasks/` convention — see `dotfiles/docs/roadmap.md` §0/§3 and `~/code/tasks/README.md` for the schema and why it moved centrally.)
+(Superseded the older per-repo `scratch/tasks/` convention — see `~/code/tasks/README.md` for the schema and why it moved centrally.)
 
 ## Worktree setup → copy gitignored bootstrap files (all repos)
 
@@ -51,7 +51,7 @@ The default `gh` is authenticated with a fine-grained PAT scoped to the **Sporta
 
 ## HTML artifacts → durable landing path first, never scratch-only
 
-Any HTML doc worth publishing as a claude.ai Artifact must FIRST be written to a durable landing path — the repo's `docs/` when it's tracked-worthy, else the central task store's dossier area (`~/code/tasks/dossiers/<repo>--<slug>/`). Never leave it only in the session scratchpad or `/tmp`: scratch dirs get cleaned and the doc becomes unrecoverable (this happened; see `dotfiles/docs/roadmap.md` 9d). Publishing to claude.ai is the preview, the file on disk is the artifact.
+Any HTML doc worth publishing as a claude.ai Artifact must FIRST be written to a durable landing path — the repo's `docs/` when it's tracked-worthy, else the central task store's dossier area (`~/code/tasks/dossiers/<repo>--<slug>/`). Never leave it only in the session scratchpad or `/tmp`: scratch dirs get cleaned and the doc becomes unrecoverable (this happened once). Publishing to claude.ai is the preview, the file on disk is the artifact.
 
 - Boundary: employer-repo (Sportable) content never lands in, or gets published from, personal surfaces — work docs go in the work repo's own scratch/docs conventions.
 - The Artifact URL may be shared in chat, but the durable path must be named alongside it.
