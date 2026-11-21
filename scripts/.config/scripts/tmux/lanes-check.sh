@@ -66,9 +66,8 @@ die() {
   exit 2
 }
 die_usage() {
-  echo "lanes-check: $*" >&2
   echo "$USAGE" >&2
-  exit 2
+  die "$@"
 }
 
 gh_call() {
@@ -230,9 +229,7 @@ uncommitted_files() { # <dir>
   done
 }
 branch_files() { # <dir-or-empty> <ref>: files changed vs base
-  if [ -n "$1" ]; then
-    git -C "$1" diff --name-only "$base...$2" 2>/dev/null
-  else G diff --name-only "$base...$2" 2>/dev/null; fi
+  git -C "${1:-$repo}" diff --name-only "$base...$2" 2>/dev/null
 }
 
 declare -A CHECKED_OUT=()
@@ -425,7 +422,8 @@ if [ "$mode" = start ]; then
           */.worktrees/*)
             pre="${cand%%/.worktrees/*}"
             rest="${cand#*/.worktrees/}"
-            STOWED["$pre/.worktrees/${rest%%/*}"]=$((${STOWED["$pre/.worktrees/${rest%%/*}"]:-0} + 1))
+            key="$pre/.worktrees/${rest%%/*}"
+            STOWED[$key]=$((${STOWED[$key]:-0} + 1))
             break
             ;;
         esac

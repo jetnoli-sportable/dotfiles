@@ -162,8 +162,19 @@ declare -A WRAP_LONG=(
   [parallel]="--jobs --sshlogin --arg-file --delay --timeout --joblog --results --tmpdir --colsep --env --load --memfree --retries --basefile --workdir --return --transfer-file --halt --max-args --max-replace-args"
 )
 declare -A WRAP_OPERANDS=([timeout]=1 [flock]=1 [taskset]=1)
-WRAP_RE="$(IFS='|'; printf '%s' "${!WRAP_SHORT[*]}")|direnv|mise|asdf"
+WRAP_RE="direnv|mise|asdf"
+for _w in "${!WRAP_SHORT[@]}"; do WRAP_RE+="|$_w"; done
 SHELLS_RE='bash|sh|zsh|dash|ksh'
+# tmux subcommands that run (or type) a command, each with its options that
+# take a value; check_segment reads the table, process_quotes the names
+declare -A TMUX_RUN_VALS=(
+  [new-window]=ceFlnt [neww]=ceFlnt [split-window]=ceFlnt [splitw]=ceFlnt
+  [respawn-pane]=cet [respawnp]=cet [respawn-window]=cet [respawnw]=cet
+  [new-session]=ceFfnstxy [new]=ceFfnstxy [run-shell]=cdt [run]=cdt
+  [send-keys]=Nt [send]=Nt [display-popup]=bcdehsStTwxy [popup]=bcdehsStTwxy
+)
+TMUX_RUN_RE=""
+for _w in "${!TMUX_RUN_VALS[@]}"; do TMUX_RUN_RE+="${TMUX_RUN_RE:+|}$_w"; done
 
 # strip_prefixes WORDS... — echo the words with leading assignments, shell
 # keywords and wrapper commands (plus the wrappers' own options) removed.
@@ -315,10 +326,13 @@ check_segment() {
   local k
   seg="$(strip_prefixes "$@")"
   set -f; set -- $seg; set +f
+  # the leading words strip_prefixes removed: assignments, wrappers and
+  # their options
+  local -a prefix=("${orig[@]:0:${#orig[@]}-$#}")
   # TF_CLI_ARGS* adds flags to every later terraform call. It counts where it
   # sets a variable (`TF_CLI_ARGS=… cmd`, `env TF_CLI_ARGS=…`, `export …`),
   # not where a commit message or a grep pattern only mentions it.
-  sets=("${orig[@]:0:${#orig[@]}-$#}")
+  sets=("${prefix[@]}")
   case "${1:-}" in export|declare|typeset|local|readonly) sets+=("${@:2}") ;; esac
   for k in "${sets[@]}"; do
     if [[ "${k//$SEP/ }" =~ ^TF_CLI_ARGS[A-Za-z_]*=.*(-auto-approve|-lock=(0|f|F|false|FALSE|False)([[:space:]]|$)) ]]; then
@@ -327,7 +341,7 @@ check_segment() {
   done
   [ $# -eq 0 ] && return
   local via_xargs=0   # xargs appends targets from stdin the guard never sees
-  for ((k = 0; k < ${#orig[@]} - $#; k++)); do [ "${orig[$k]##*/}" = xargs ] && via_xargs=1; done
+  for k in "${prefix[@]}"; do [ "${k##*/}" = xargs ] && via_xargs=1; done
   w="${1##*/}"; w="${w//\\/}"; shift
   rest=" $* "
   rest="${rest//$SEP/ }"
@@ -368,15 +382,7 @@ check_segment() {
           *) sub="$1"; shift; break ;;
         esac
       done
-      case "$sub" in   # vals: the subcommand's options that take a value
-        new-window|neww|split-window|splitw) vals=ceFlnt ;;
-        respawn-pane|respawnp|respawn-window|respawnw) vals=cet ;;
-        new-session|new) vals=ceFfnstxy ;;
-        run-shell|run) vals=cdt ;;
-        send-keys|send) vals=Nt ;;
-        display-popup|popup) vals=bcdehsStTwxy ;;
-        *) sub="" ;;
-      esac
+      if [ -n "$sub" ] && [ "${TMUX_RUN_VALS[$sub]+set}" ]; then vals="${TMUX_RUN_VALS[$sub]}"; else sub=""; fi
       if [ -n "$sub" ]; then
         while [ $# -gt 0 ]; do
           case "$1" in
@@ -713,16 +719,16 @@ subst_spans() {
 # separators turned into $SEP. `$( )` and backticks in double quotes stay
 # code. Unquoted `# comments` are dropped.
 process_quotes() {
-  awk -v RS='\001' -v ORS='' -v SUBST="$SUBST" -v WRAP="$WRAP_RE" -v SHELLS="$SHELLS_RE" '
+  awk -v RS='\001' -v ORS='' -v SUBST="$SUBST" -v WRAP="$WRAP_RE" -v SHELLS="$SHELLS_RE" -v TMUXRUN="$TMUX_RUN_RE" '
     function data(c) { return (c ~ /[[:space:];&|()`<>]/) ? "\001" : c }
     function lifts(cur) {
-      return cur ~ /(^|[[:space:]\/])(bash|sh|zsh|dash|ksh|su|sg|runuser|script|flock)([[:space:]]+[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/ \
+      return cur ~ ("(^|[[:space:]/])(" SHELLS "|su|sg|runuser|script|flock)([[:space:]]+[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$") \
         || cur ~ /(^|[[:space:]])eval[[:space:]]/ || cur ~ /(^|[[:space:]\/])(ssh|watch|parallel)[[:space:]]/ \
         || cur ~ /(^|[[:space:]])trap[[:space:]]+(--[[:space:]]+)?$/ \
         || cur ~ /(^|[[:space:]\/])env([[:space:]]+[^[:space:]]+)*[[:space:]]+(-S|--split-string)[[:space:]=]*$/ \
         || cur ~ /(^|[[:space:]\/])nix-shell([[:space:]]+[^[:space:]]+)*[[:space:]]+--(run|command)[[:space:]=]*$/ \
-        || cur ~ /(^|[[:space:]\/])(bash|sh|zsh|dash|ksh)([[:space:]]+[^[:space:]]+)*[[:space:]]*<<<[[:space:]]*$/ \
-        || cur ~ /(^|[[:space:]\/])tmux[[:space:]](.*[[:space:]])?(new-window|neww|new-session|new|split-window|splitw|run-shell|run|send-keys|send|respawn-pane|respawnp|respawn-window|respawnw|display-popup|popup)[[:space:]]/
+        || cur ~ ("(^|[[:space:]/])(" SHELLS ")([[:space:]]+[^[:space:]]+)*[[:space:]]*<<<[[:space:]]*$") \
+        || cur ~ ("(^|[[:space:]/])tmux[[:space:]](.*[[:space:]])?(" TMUXRUN ")[[:space:]]")
     }
     # `echo "cmd" | bash`: the quoted text reaches a shell that reads stdin.
     # Flags and redirects may follow the shell (`bash -s`, `bash 2>&1`), but
