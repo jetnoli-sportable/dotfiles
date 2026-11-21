@@ -160,6 +160,8 @@ run done & p1=$!
 agent agent-stop a1 & p2=$!
 sleep 0.2
 assert_eq "both hooks wait while the pane lock is held" "1" "$(opt @claude_working)"
+assert_eq "Stop waits while the pane lock is held" "1" "$(opt @claude_turn)"
+assert_eq "SubagentStop waits while the pane lock is held" 1 "$([ -n "$(opt @claude_agent_a1)" ] && echo 1)"
 wait "$holder"; wait "$p1"; wait "$p2"
 assert_eq "simultaneous Stop and SubagentStop: not stuck working" "" "$(opt @claude_working)"
 assert_eq "simultaneous Stop and SubagentStop: turn marker cleared" "" "$(opt @claude_turn)"
