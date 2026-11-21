@@ -13,19 +13,22 @@
 # noise, and that docgen-generated files change in nearly every PR.
 #
 # How it decides: the plan file lists items and the repo-relative paths each
-# plans to touch (a path ending in / means everything under it). Live sources:
+# plans to touch (a path ending in / means everything under it; a directory
+# named without the / is refused, since it would match nothing). Live sources:
 #   1. every worktree (the main checkout too): its uncommitted + untracked
 #      files, and its branch's changes against the base;
 #   2. every local branch not checked out anywhere (no worktree, maybe no PR);
 #   3. every open PR's files (via `gh pr list`);
-#   4. a branch whose PR already merged, and that has no open PR, is skipped
-#      (and listed, so Jet can see it was considered).
+#   4. a branch whose PR already merged, has no open PR, and whose tip is that
+#      PR's head commit (or behind it) is skipped, and listed so Jet can see it
+#      was considered; commits added after the merge keep it live.
 # A file overlapping an item's paths stops the item. Generated files
 # (docs/INDEX.md, docs/HUB.html, docs/try-it.*, and docs/**/*.html that has a
 # .md sibling) never stop by name — they change in nearly every PR; `commit`
 # mode instead runs a git merge dry run against the live branch and stops only
-# on a real conflict. The PR lookups fail closed: if they can't be listed, an
-# item that could conflict must stop, so the run exits 2 instead of guessing.
+# on a real conflict. Lookups fail closed: if the PRs, or any source's git
+# changes, can't be listed, an item that could conflict must stop, so the run
+# exits 2 instead of guessing.
 #
 # Plan file:
 #   approved: 2026-11-21 by Jet     # required, with text after the colon
@@ -35,9 +38,14 @@
 # Usage:
 #   lanes-check.sh start  --plan FILE [--item ID] [--repo DIR] [--base REF]
 #   lanes-check.sh commit --plan FILE --item ID --worktree DIR [--repo DIR] [--base REF]
-# `commit` treats the item's files as its planned paths plus what DIR actually
-# changed (committed vs base, uncommitted, untracked); DIR and its branch are
-# not live sources; changed-but-unplanned files print as a NOTE.
+# Run `commit` after the item commits and before it pushes or opens a PR, so
+# the docgen pre-commit hook has already regenerated docs/INDEX.md and the
+# HTML pages the merge dry run compares; on STOP the runner undoes the commit
+# (git reset --soft HEAD~1). (Jet, 2026-11-22: checking before the commit
+# never saw the regenerated files.) It treats the item's files as its planned
+# paths plus what DIR actually changed (committed vs base, uncommitted,
+# untracked); DIR and its branch are not live sources; changed-but-unplanned
+# files print as a NOTE.
 # --repo defaults to the git toplevel of the cwd (of DIR for commit). --base
 # defaults to origin/HEAD's target, else origin/development, else origin/main.
 #
@@ -51,7 +59,7 @@
 # lines, then `NOTE <item>: ...` lines; `start` ends with a per-source
 # blocked-items summary and any stowed-config WARN.
 # Exit codes: 0 every checked item CLEAR, 1 some item STOP, 2 the check
-# couldn't run (bad args, unapproved plan, no base, PR lookup failed).
+# couldn't run (bad args, unapproved plan, no base, a PR or git lookup failed).
 set -uo pipefail
 
 USAGE="usage: lanes-check.sh start --plan FILE [--item ID] [--repo DIR] [--base REF]
@@ -70,11 +78,11 @@ die_usage() {
   die "$@"
 }
 
-gh_call() {
+gh_call() { # bounded: a hung lookup in an unattended run exits 2, not forever
   if [ -n "${LANES_GH:-}" ]; then
-    "$LANES_GH" "$@"
+    timeout "${LANES_GH_TIMEOUT:-120}" "$LANES_GH" "$@"
   else
-    zsh -ic 'pgh "$@"' _ "$@"
+    timeout "${LANES_GH_TIMEOUT:-120}" zsh -ic 'pgh "$@"' _ "$@"
   fi
 }
 
@@ -160,8 +168,22 @@ fi
 G rev-parse --verify -q "$base^{commit}" >/dev/null || die "base ref not found: $base"
 base_local="${base#origin/}"
 
-errf="$(mktemp)" tmp_index="$(mktemp -u)"
-trap 'rm -f "$errf" "$tmp_index"' EXIT
+# A planned directory without its trailing / would only match a file of that
+# exact name, so the item would read CLEAR however much under it changed.
+for id in "${ITEM_IDS[@]}"; do
+  fixed=()
+  for p in ${ITEM_PATHS[$id]}; do
+    p="${p#./}"
+    if [[ "$p" != */ ]] && { [ "$(G cat-file -t "$base:$p" 2>/dev/null)" = tree ] || [ -d "$repo/$p" ]; }; then
+      die "plan item '$id' names directory '$p' without a trailing /; write '$p/' to cover everything under it"
+    fi
+    fixed+=("$p")
+  done
+  ITEM_PATHS[$id]="${fixed[*]}"
+done
+
+errf="$(mktemp)" statf="$(mktemp)" tmp_index="$(mktemp -u)"
+trap 'rm -f "$errf" "$statf" "$tmp_index"' EXIT
 
 own_branch="" item_head=""
 if [ "$mode" = commit ]; then
@@ -186,15 +208,24 @@ pr_list() { # <state> <json fields> <limit> -> JSON on stdout, or exit 2
   printf '%s' "$out"
 }
 open_json="$(pr_list open number,headRefName,files 200)" || exit 2
-merged_json="$(pr_list merged headRefName 300)" || exit 2
+merged_json="$(pr_list merged headRefName,headRefOid 300)" || exit 2
 
-declare -A OPEN_HEAD=() MERGED_HEAD=()
+declare -A OPEN_HEAD=() MERGED_OIDS=()
 while IFS= read -r h; do [ -n "$h" ] && OPEN_HEAD[$h]=1; done < <(jq -r '.[].headRefName' <<<"$open_json")
-while IFS= read -r h; do [ -n "$h" ] && MERGED_HEAD[$h]=1; done < <(jq -r '.[].headRefName' <<<"$merged_json")
+while IFS=$'\t' read -r h o; do
+  [ -n "$h" ] && MERGED_OIDS[$h]+="${o:-} "
+done < <(jq -r '.[] | [.headRefName, (.headRefOid // "")] | @tsv' <<<"$merged_json")
 
 SKIPPED=()
-is_merged_skip() { # <branch>: merged PR and no open PR; remembers it for the report
-  [ -n "${MERGED_HEAD[$1]+x}" ] && [ -z "${OPEN_HEAD[$1]+x}" ] || return 1
+is_merged_skip() { # <branch> <tip>: merged at this tip (or past it), no open PR
+  [ -n "${MERGED_OIDS[$1]+x}" ] && [ -z "${OPEN_HEAD[$1]+x}" ] || return 1
+  # a name alone isn't enough: a branch reused after its PR merged, or one
+  # with commits added since, still has live work
+  local o merged=1
+  for o in ${MERGED_OIDS[$1]}; do
+    if [ "$o" = "$2" ] || G merge-base --is-ancestor "$2" "$o" 2>/dev/null; then merged=0; break; fi
+  done
+  [ "$merged" = 0 ] || return 1
   case " ${SKIPPED[*]:-} " in *" $1 "*) ;; *) SKIPPED+=("$1") ;; esac
   return 0
 }
@@ -211,10 +242,11 @@ add_source() { # <label> <kind wt|branch|pr> <ref for a dry run or ""> <files, n
 
 # Uncommitted + untracked files of a worktree. -z keeps odd names intact; a
 # rename or copy record is followed by the old path, and both count.
-uncommitted_files() { # <dir>
+uncommitted_files() { # <dir>; fails when git can't read the worktree
   local rec status
   local -a recs=()
-  mapfile -d '' recs < <(git -C "$1" status --porcelain -z --untracked-files=all 2>/dev/null)
+  git -C "$1" status --porcelain -z --untracked-files=all >"$statf" 2>/dev/null || return 1
+  mapfile -d '' recs <"$statf"
   local i=0
   while [ "$i" -lt "${#recs[@]}" ]; do
     rec="${recs[$i]}"
@@ -228,8 +260,8 @@ uncommitted_files() { # <dir>
     i=$((i + 1))
   done
 }
-branch_files() { # <dir-or-empty> <ref>: files changed vs base
-  git -C "${1:-$repo}" diff --name-only "$base...$2" 2>/dev/null
+branch_files() { # <dir-or-empty> <ref>: files changed vs base, both sides of a rename
+  git -C "${1:-$repo}" diff --no-renames --name-only "$base...$2" 2>/dev/null
 }
 
 declare -A CHECKED_OUT=()
@@ -263,17 +295,27 @@ flush_wt
 for i in "${!wt_paths[@]}"; do
   p="${wt_paths[$i]}"
   b="${wt_branches[$i]}"
-  [ -d "$p" ] || continue
-  rp="$(cd "$p" && pwd -P)"
-  [ "$mode" = commit ] && [ "$rp" = "$wtdir" ] && continue
-  add_source "worktree $p (uncommitted)" wt "" "$(uncommitted_files "$p" | sort -u)"
+  if [ -d "$p" ]; then
+    rp="$(cd "$p" && pwd -P)"
+    [ "$mode" = commit ] && [ "$rp" = "$wtdir" ] && continue
+    files="$(uncommitted_files "$p" | sort -u)" || die "couldn't read the uncommitted changes of worktree $p"
+    add_source "worktree $p (uncommitted)" wt "" "$files"
+    where="worktree $p" dir="$p" ref=HEAD
+  else
+    # its directory is gone but git still lists it: the branch's commits are
+    # still live, so compare them from the repo
+    where="worktree $p missing" dir="" ref="${b:+refs/heads/$b}"
+    ref="${ref:-${wt_heads[$i]}}"
+  fi
   if [ -n "$b" ]; then
     [ "$b" = "$base_local" ] && continue
-    is_merged_skip "$b" && continue
-    add_source "branch $b (worktree $p)" branch "refs/heads/$b" "$(branch_files "$p" HEAD)"
+    is_merged_skip "$b" "${wt_heads[$i]}" && continue
+    label="branch $b ($where)" dref="refs/heads/$b"
   else
-    add_source "HEAD detached (worktree $p)" branch "${wt_heads[$i]}" "$(branch_files "$p" HEAD)"
+    label="HEAD detached ($where)" dref="${wt_heads[$i]}"
   fi
+  files="$(branch_files "$dir" "$ref")" || die "couldn't list the changes of $label against $base"
+  add_source "$label" branch "$dref" "$files"
 done
 
 while IFS= read -r b; do
@@ -281,8 +323,9 @@ while IFS= read -r b; do
   [ -z "${CHECKED_OUT[$b]+x}" ] || continue
   [ "$b" = "$base_local" ] && continue
   [ "$b" = "$own_branch" ] && continue
-  is_merged_skip "$b" && continue
-  add_source "branch $b" branch "refs/heads/$b" "$(branch_files "" "refs/heads/$b")"
+  is_merged_skip "$b" "$(G rev-parse "refs/heads/$b")" && continue
+  files="$(branch_files "" "refs/heads/$b")" || die "couldn't list the changes of branch $b against $base"
+  add_source "branch $b" branch "refs/heads/$b" "$files"
 done < <(G for-each-ref --format='%(refname:short)' refs/heads)
 
 n_prs="$(jq 'length' <<<"$open_json")"
@@ -326,10 +369,11 @@ check_item() { # <id>
   read -ra planned <<<"${ITEM_PATHS[$id]}"
   files=("${planned[@]}")
   if [ "$mode" = commit ]; then
-    mapfile -t actual < <({
-      branch_files "$wtdir" HEAD
-      uncommitted_files "$wtdir"
-    } | sort -u)
+    local changed
+    changed="$({
+      branch_files "$wtdir" HEAD && uncommitted_files "$wtdir"
+    } | sort -u)" || die "couldn't list what $wtdir changed"
+    mapfile -t actual <<<"$changed"
     for f in "${actual[@]}"; do
       [ -n "$f" ] || continue
       overlaps "$f" "${planned[@]}" || notes+=("changed file not in plan: $f")

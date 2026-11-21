@@ -56,6 +56,7 @@ new_fixture() { # sets F (fixture dir), R (clone), HOME, LANES_GH
 d="$(dirname "$0")/stub"
 [ -e "$d/fail" ] && { echo "stub: gh exploded" >&2; exit 1; }
 [ -e "$d/garbage" ] && { echo "not json"; exit 0; }
+[ -e "$d/hang" ] && sleep 30
 state=
 while [ $# -gt 0 ]; do [ "$1" = --state ] && state="$2"; shift; done
 cat "$d/$state.json"
@@ -172,13 +173,24 @@ check "local branch without worktree or PR -> STOP branch lb" \
   )"
 
 # 5. same branch, PR already merged ----------------------------------------
-echo '[{"headRefName":"lb"}]' >"$F/stub/merged.json"
+printf '[{"headRefName":"lb","headRefOid":"%s"}]\n' "$(git -C "$R" rev-parse lb)" >"$F/stub/merged.json"
 run start --plan "$F/plan"
 check "merged-PR branch is ignored, exit 0, and listed as skipped" \
   "$(
     rc_is 0 && has 'CLEAR i1' && has_line 'Skipped (PR already merged): lb'
     echo $?
   )"
+merged_lb="$(cat "$F/stub/merged.json")"
+git -C "$R" worktree add -q "$R/.worktrees/lbw" lb
+commit_in "$R/.worktrees/lbw" x.sh "after the merge"
+run start --plan "$F/plan"
+check "a merged-PR branch with commits added after the merge still blocks" \
+  "$(
+    rc_is 1 && has "  x.sh  <- branch lb (worktree" && lacks 'Skipped'
+    echo $?
+  )"
+git -C "$R" worktree remove --force "$R/.worktrees/lbw"
+git -C "$R" branch -q -f lb "$(printf '%s' "$merged_lb" | jq -r '.[0].headRefOid')"
 echo '[{"number":9,"headRefName":"lb","files":[{"path":"x.sh"}]}]' >"$F/stub/open.json"
 run start --plan "$F/plan"
 check "branch with a merged PR AND an open PR still blocks" \
@@ -212,6 +224,26 @@ check "gh prints invalid JSON -> exit 2" "$(
   rc_is 2 && ! has 'CLEAR'
   echo $?
 )"
+rm "$F/stub/garbage"
+touch "$F/stub/hang"
+LANES_GH_TIMEOUT=1 run start --plan "$F/plan"
+check "gh that never returns is cut off -> exit 2" "$(
+  rc_is 2 && ! has 'CLEAR'
+  echo $?
+)"
+rm "$F/stub/hang"
+
+# 7b. a source git can't read fails closed ------------------------------------
+new_fixture
+plan 'i1 wb.sh'
+git -C "$R" checkout -q --orphan unrelated
+git -C "$R" commit -q --allow-empty -m "no common history"
+git -C "$R" checkout -q development
+run start --plan "$F/plan"
+check "branch with no merge base -> exit 2 naming it, not CLEAR" "$(
+  rc_is 2 && ! has 'CLEAR' && grep -qF 'branch unrelated' <<<"$ERR"
+  echo $?
+)"
 
 # 8. planned directory -------------------------------------------------------
 new_fixture
@@ -232,6 +264,39 @@ check "planned path without trailing slash is not a directory prefix" \
     rc_is 0 && has 'CLEAR i1'
     echo $?
   )"
+plan 'i1 scripts'
+run start --plan "$F/plan"
+check "a directory planned without its trailing / -> exit 2" "$(
+  rc_is 2 && grep -qF "write 'scripts/'" <<<"$ERR"
+  echo $?
+)"
+plan 'i1 ./scripts/'
+run start --plan "$F/plan"
+check "a ./ prefix on a planned path still matches" "$(
+  rc_is 1 && has_line "  scripts/foo.sh  <- branch sb"
+  echo $?
+)"
+
+# 8b. renames and a worktree whose directory is gone -------------------------
+new_fixture
+plan 'i1 x.sh'
+add_wt rn
+git -C "$R/.worktrees/rn" mv x.sh y.sh && git -C "$R/.worktrees/rn" commit -q -m rename
+run start --plan "$F/plan"
+check "a branch that renames a planned file -> STOP on the old path" "$(
+  rc_is 1 && has_line "  x.sh  <- branch rn (worktree $R/.worktrees/rn)"
+  echo $?
+)"
+new_fixture
+plan 'i1 x.sh'
+add_wt gone
+commit_in "$R/.worktrees/gone" x.sh changed
+rm -rf "$R/.worktrees/gone"
+run start --plan "$F/plan"
+check "a worktree whose directory was deleted still blocks by its branch" "$(
+  rc_is 1 && has_line "  x.sh  <- branch gone (worktree $R/.worktrees/gone missing)"
+  echo $?
+)"
 
 # 9. generated files ---------------------------------------------------------
 new_fixture
