@@ -67,6 +67,27 @@ expect "listed link, plain md2html: reads the .md" "$out" read "$DOSSIERS/fam/pl
 out="$(resolve https://claude.ai/code/artifact/LADDERID)"
 expect "listed link, own generator: reads the .html" "$out" read "$DOSSIERS/fam/ladder.html"
 
+out="$(resolve "$DOSSIERS/fam/ladder.md")"
+expect "generated page: a local .md path resolves to the .html" "$out" read "$DOSSIERS/fam/ladder.html"
+
+touch -d '2020-01-01' "$DOSSIERS/fam/plan.html"
+out="$(resolve "$DOSSIERS/fam/plan.html")"
+expect "md edited after the render: md_newer_than_html true" "$out" md_newer_than_html True
+touch -d '2030-01-01' "$DOSSIERS/fam/plan.html"
+out="$(resolve "$DOSSIERS/fam/plan.html")"
+expect "html rendered after the md: md_newer_than_html false" "$out" md_newer_than_html False
+out="$(resolve "$DOSSIERS/fam/plan.md")"
+expect "a local .md with an .html beside it: gets md_newer_than_html" "$out" md_newer_than_html False
+expect "a local .md with an .html beside it: names the html" "$out" html "$DOSSIERS/fam/plan.html"
+
+mkdir -p "$WORK/loose"
+echo "# page" > "$WORK/loose/page.md"; echo '{}' > "$WORK/loose/page.json"
+out="$(resolve "$WORK/loose/page.json")"
+expect "a non-.html path with a .md beside it: reads the .md (used to crash)" "$out" read "$WORK/loose/page.md"
+echo "# up" > "$WORK/loose/Up.md"; echo "<h1>up</h1>" > "$WORK/loose/Up.HTML"
+out="$(resolve "$WORK/loose/Up.HTML")"
+expect "an upper-case .HTML with a .md beside it: reads the .md (used to crash)" "$out" read "$WORK/loose/Up.md"
+
 out="$(resolve https://claude.ai/artifact/UNLISTED)"
 expect "unlisted link falls back to the Artifact read" "$out" via artifact
 
