@@ -4,7 +4,7 @@ status: current
 tile: Check-in points, not automatic triggers. What each one is for, and what happens when it passes.
 group: workflow
 kind: page
-updated: 2026-09-22
+updated: 2026-11-21
 ---
 
 **Dated clocks** are check-in points, not tasks — "on this date, come back
@@ -46,6 +46,29 @@ Full usage is in the [weekly-review guide](guides/weekly-review.html).
   store and the header refreshes every 3 seconds.) It stays
   manual until a few real runs show it's worth keeping. If the suggestions
   keep coming up empty, rethink the ceremony rather than automating it.
+
+### Monthly security scan — first weekend of each month
+
+A deep vulnerability scan of each active repo with the official
+`claude-security` plugin. Its agents map each repo, hunt for flaws, and
+try to disprove every finding before it reaches the report. Decided
+2026-11-21; the first run was that day.
+
+- **When:** a step in the first weekend run of each month, started by
+  hand. The spare-token lanes' automatic launcher takes it over once it
+  exists. Not `/schedule`: cloud runs can't see this machine's repos.
+- **What:** the active personal repos plus the work repos, each on a fresh
+  shallow clone of its default branch, at medium effort, one Claude
+  session per repo. The repo list and the script that clones, launches and
+  collects live in the private task store, in the task's dossier
+  (`dotfiles--ceremony-monthly-security-scan/tools/`), not here.
+- **Where the report goes:** each repo's report is copied into that
+  dossier under `runs/<YYYY-MM>/`. That month's weekend report gets one line
+  per repo with the severity counts, and each confirmed finding becomes a
+  task. Reports never go into a scanned repo's git history.
+- **Code-modernization:** left out of the first two runs, then looked at
+  again. When a lot of tokens are spare on scan day, run it too rather
+  than lose them.
 
 ### Fortnightly Retro and Sprint planning — fed by the weekly review
 
