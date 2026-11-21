@@ -60,7 +60,8 @@
 #       force-unlock, refresh, state rm|mv|push|replace-provider, workspace
 #       delete, and any -auto-approve or -lock=false (global options like
 #       -chdir skipped; terragrunt's apply-all/destroy-all too; also set
-#       through TF_CLI_ARGS* where a variable is set, and in a terraform
+#       through TF_CLI_ARGS* where a variable is set, including `make
+#       VAR=…` and `docker run -e VAR=…`, and in a terraform
 #       container under docker/podman run): the agent never changes real
 #       infrastructure or shared state; Jet runs those. -help/-version pass
 #   ask (Jet confirms):
@@ -138,13 +139,16 @@ flag() {
 # feed WRAP_RE for the awk pass. Per wrapper:
 #   WRAP_SHORT     short options that take a value (`sudo -u jet`)
 #   WRAP_LONG      long options that take a separate value (`--unit tf`);
-#                  `--opt=value` is one word and needs no entry
+#                  `--opt=value` is one word and needs no entry. Only options
+#                  whose value is required belong in either list: an optional
+#                  value binds only when attached (`xargs --replace=X`,
+#                  `watch -dpermanent`), so listing one would eat the command
 #   WRAP_OPERANDS  operands before the command (timeout's duration, flock's
 #                  lock file, taskset's CPU mask)
 # env has no -S: `env -S 'cmd'` is lifted as code; an unquoted -S cmd runs cmd.
 declare -A WRAP_SHORT=(
   [env]=uC [sudo]=ugCDprtUTh [doas]=uC [nice]=n [ionice]=cnp [timeout]=ks
-  [xargs]=adEILnPs [watch]=nd [stdbuf]=ioe [time]=fo [exec]=a [flock]=wE
+  [xargs]=adEILnPs [watch]=n [stdbuf]=ioe [time]=fo [exec]=a [flock]=wE
   [taskset]="" [runuser]=ugl [systemd-run]=upEMHs [parallel]=jSaE
   [command]="" [nohup]="" [builtin]="" [setsid]="" [eval]="" [unbuffer]=""
   [chronic]="" [coproc]=""
@@ -154,8 +158,8 @@ declare -A WRAP_LONG=(
   [sudo]="--user --group --chdir --prompt --close-from --host --role --type --other-user"
   [nice]="--adjustment"
   [timeout]="--kill-after --signal"
-  [xargs]="--arg-file --delimiter --eof --max-lines --max-args --max-procs --max-chars --replace --process-slot-var"
-  [watch]="--interval --differences"
+  [xargs]="--arg-file --delimiter --max-args --max-procs --max-chars --process-slot-var"
+  [watch]="--interval"
   [flock]="--timeout --wait --conflict-exit-code"
   [runuser]="--user --group --supp-group --shell --whitelist-environment"
   [systemd-run]="--unit --property --description --slice --uid --gid --nice --working-directory --setenv --machine --host --on-active --on-boot --on-calendar --timer-property --path-property --socket-property"
@@ -203,7 +207,7 @@ strip_prefixes() {
     if [ "$w" = asdf ] && [ "${2:-}" = exec ]; then shift 2; continue; fi
     # `coproc NAME { cmd; }` names the coprocess; `coproc cmd` doesn't
     if [ "$w" = coproc ] && [ "${3:-}" = '{' ]; then shift 2; continue; fi
-    [ "${WRAP_SHORT[$w]+set}" ] || break
+    [ -n "$w" ] && [ "${WRAP_SHORT[$w]+set}" ] || break
     vals="${WRAP_SHORT[$w]}" long=" ${WRAP_LONG[$w]:-} "
     shift
     while [ $# -gt 0 ]; do
@@ -330,10 +334,21 @@ check_segment() {
   # their options
   local -a prefix=("${orig[@]:0:${#orig[@]}-$#}")
   # TF_CLI_ARGS* adds flags to every later terraform call. It counts where it
-  # sets a variable (`TF_CLI_ARGS=… cmd`, `env TF_CLI_ARGS=…`, `export …`),
-  # not where a commit message or a grep pattern only mentions it.
+  # sets a variable (`TF_CLI_ARGS=… cmd`, `env TF_CLI_ARGS=…`, `export …`,
+  # `make deploy TF_CLI_ARGS=…`, `docker run -e TF_CLI_ARGS=…`), not where a
+  # commit message or a grep pattern only mentions it.
   sets=("${prefix[@]}")
-  case "${1:-}" in export|declare|typeset|local|readonly) sets+=("${@:2}") ;; esac
+  k="${1:-}"
+  case "${k##*/}" in
+    export|declare|typeset|local|readonly|make|gmake) sets+=("${@:2}") ;;
+    docker|podman)
+      local prev=""
+      for k in "${@:2}"; do
+        case "$prev" in -e|--env) sets+=("$k") ;; esac
+        case "$k" in --env=*) sets+=("${k#--env=}") ;; -e?*) sets+=("${k#-e}") ;; esac
+        prev="$k"
+      done ;;
+  esac
   for k in "${sets[@]}"; do
     if [[ "${k//$SEP/ }" =~ ^TF_CLI_ARGS[A-Za-z_]*=.*(-auto-approve|-lock=(0|f|F|false|FALSE|False)([[:space:]]|$)) ]]; then
       flag deny "TF_CLI_ARGS carrying ${BASH_REMATCH[1]} makes terraform skip its review step or state lock; $TF_CARD"
@@ -649,7 +664,7 @@ check_segment() {
 # a span (`it's`) from swallowing the commands after the heredoc.
 HEREDOC_RUNNERS="|$SHELLS_RE|ssh|eval|source|psql|mysql|sqlite3|bq|duckdb|"
 drop_data_heredocs() {
-  local line term="" keep=0 quoted=0 body="" s head tail seg next
+  local line term="" keep=0 quoted=0 body="" s head tail seg next pipe
   local re='(^|[^<])<<-?[[:space:]]*(["'\'']?)([A-Za-z_][A-Za-z0-9_]*)'
   while IFS= read -r line || [ -n "$line" ]; do
     if [ -n "$term" ]; then
@@ -675,16 +690,18 @@ drop_data_heredocs() {
     set -f
     # shellcheck disable=SC2086 # word-splitting the segment is the intent
     seg="$(first_word $seg)"
-    next=""
-    if [[ "$tail" == *'|'* ]]; then
-      next="${tail#*|}"; next="${next#|}"; next="${next%%[|;&]*}"
-      # shellcheck disable=SC2086
-      next="$(first_word $next)"
-    fi
-    set +f
     keep=0
     [[ "$HEREDOC_RUNNERS" == *"|$seg|"* ]] && keep=1
-    [[ -n "$next" && "|$SHELLS_RE|ssh|" == *"|$next|"* ]] && keep=1
+    # the body also runs when any later stage of its pipeline is a shell
+    # (`cat <<EOF | tee run.log | bash`); the pipeline ends at ; & or ||
+    pipe="${tail%%[;&]*}"; pipe="${pipe%%||*}"
+    while [ $keep = 0 ] && [[ "$pipe" == *'|'* ]]; do
+      pipe="${pipe#*|}"
+      # shellcheck disable=SC2086
+      next="$(first_word ${pipe%%|*})"
+      [[ -n "$next" && "|$SHELLS_RE|ssh|" == *"|$next|"* ]] && keep=1
+    done
+    set +f
   done
   [ -n "$term" ] && [ $keep = 0 ] && [ $quoted = 0 ] && subst_spans "$body"
   return 0
@@ -736,7 +753,9 @@ process_quotes() {
     function piped_to_shell(cur, rest,   tail) {
       if (cur !~ /(^|[[:space:]\/])(echo|printf)[[:space:]]/) return 0
       sub(/\n.*/, "", rest)
-      if (!match(rest, "\\|[[:space:]]*(((" WRAP ")|-[^[:space:]|;&]*|[0-9][^[:space:]|;&]*)[[:space:]]+)*([^[:space:]|;&]*/)?(" SHELLS ")($|[[:space:];&|)])")) return 0
+      # after a wrapper name any words may precede the shell (`| sudo -u jet
+      # bash`); a false lift only adds an ask or a deny
+      if (!match(rest, "\\|[[:space:]]*(((" WRAP ")[[:space:]]+([^[:space:]|;&]+[[:space:]]+)*)|((-[^[:space:]|;&]*|[0-9][^[:space:]|;&]*)[[:space:]]+)*)([^[:space:]|;&]*/)?(" SHELLS ")($|[[:space:];&|)])")) return 0
       tail = substr(rest, RSTART + RLENGTH - 1)
       gsub(/[0-9]*[<>]&[0-9-]*/, "", tail)
       sub(/[;&|)].*/, "", tail)
@@ -766,9 +785,13 @@ process_quotes() {
     {
       s = $0; n = length(s); out = ""; extra = ""; st = 0   # 0 code, 1/2 single/double data, 3/4 single/double lifted
       piped = 0   # inside `printf FMT ARG… | bash`: every quoted argument is code
+      ansi = 0; esc = 0   # ANSI-C quoting: a $ opened the quote, so a backslash escapes the next char
       for (i = 1; i <= n; i++) {
         c = substr(s, i, 1)
-        if (st == 1) { if (c == "\047") st = 0; else out = out data(c); continue }
+        if (st == 1) {
+          if (esc && c == "\\" && i < n) { i++; out = out data(substr(s, i, 1)); continue }
+          if (c == "\047") st = 0; else out = out data(c); continue
+        }
         # $( ) and backticks run as code everywhere but single-quoted data
         # ($(( )) is arithmetic and stays put)
         if (c == "$" && substr(s, i + 1, 1) == "(" && substr(s, i + 2, 1) != "(") { out = out stand_in(paren_body()); continue }
@@ -782,14 +805,23 @@ process_quotes() {
         if (st == 4 && c == "\\" && substr(s, i + 1, 1) == "\"") { i++; continue }
         if (st == 4 && c == "\"") { out = out ";"; st = 0; continue }
         if (st != 0 && (c == "\047" || c == "\"")) continue
+        # tmux A \; B runs B as another tmux command: split it off with the
+        # same tmux word and global options, so B is judged as `tmux B`
+        if (st == 0 && c == "\\" && substr(s, i + 1, 1) == ";") {
+          cur = out; sub(/.*[;&|(\n]/, "", cur)
+          if (match(cur, /(^|[[:space:]\/])tmux([[:space:]]+(-[LSf][[:space:]]*[^-[:space:]][^[:space:]]*|-[^[:space:]]+))*/)) {
+            out = out "; " substr(cur, RSTART, RLENGTH) " "; i++; continue
+          }
+        }
         if (c == "\\" && i < n) { out = out c substr(s, i + 1, 1); i++; continue }
         # ANSI-C ($ before a single quote) and locale ($ before a double
         # quote) quoting: the quotes still group a word, and the $ is not text
-        if (st == 0 && c == "$" && (substr(s, i + 1, 1) == "\047" || substr(s, i + 1, 1) == "\"")) continue
+        if (st == 0 && c == "$" && (substr(s, i + 1, 1) == "\047" || substr(s, i + 1, 1) == "\"")) { ansi = (substr(s, i + 1, 1) == "\047"); continue }
         if (st == 0 && c == "#" && (i == 1 || substr(s, i - 1, 1) ~ /[[:space:];&|(]/)) {
           j = index(substr(s, i), "\n"); if (j == 0) break; i += j - 2; continue
         }
         if (st == 0 && (c == "\047" || c == "\"")) {
+          esc = ansi; ansi = 0
           cur = out; sub(/.*[;&|(\n]/, "", cur)
           if (!piped && piped_to_shell(cur, substr(s, i))) piped = 1
           if (piped || lifts(cur)) { out = out ";"; st = (c == "\047") ? 3 : 4 } else st = (c == "\047") ? 1 : 2
@@ -805,10 +837,15 @@ process_quotes() {
 # bash deletes backslash-newline outright: `terra\<newline>form` is terraform
 cmd="${cmd//$'\\\n'/}"
 # `source <(cmd)` and `bash <(cmd)` run cmd's output as a script, the same as
-# `cmd | bash`, which the checks below already read
-ps_re='(^|[;&|({[:space:]])(source|\.|bash|sh|zsh|dash|ksh)[[:space:]]+<\(([^()]*)\)'
-while [[ "$cmd" =~ $ps_re ]]; do
-  cmd="${cmd/"${BASH_REMATCH[0]}"/${BASH_REMATCH[1]}${BASH_REMATCH[3]} | bash}"
+# `cmd | bash`, which the checks below already read. The replacement is
+# quoted: bash 5.2's patsub_replacement turns an unquoted & into the match,
+# which put `source <(` back each pass and hung the hook (a timed-out hook
+# doesn't block). Each pass removes one `<(`; the cap is a backstop.
+ps_re="(^|[;&|({[:space:]])(source|\\.|$SHELLS_RE)[[:space:]]+<\\(([^()]*)\\)"
+for ((_i = 0; _i < 20; _i++)); do
+  [[ "$cmd" =~ $ps_re ]] || break
+  _m="${BASH_REMATCH[0]}" _r="${BASH_REMATCH[1]}${BASH_REMATCH[3]} | bash"
+  cmd="${cmd/"$_m"/"$_r"}"
 done
 has_subst=0   # $( ) / backtick output can become rm targets the guard never sees
 [[ "$cmd" == *'$('* || "$cmd" == *'`'* ]] && has_subst=1

@@ -18,10 +18,12 @@ fail=0
 # Claude Code runs the guard directly, so it's run the same way here: a lost
 # exec bit or a bad shebang makes the real hook fail open, and must fail here.
 [ -x "$GUARD" ] || { echo "FAIL - guard is not executable (Claude Code runs it directly): $GUARD"; fail=1; }
-decide() { # <command> -> deny|ask|allow
+decide() { # <command> -> deny|ask|allow, or hang when the guard doesn't finish
   local out
+  # a hook that times out doesn't block, so a hang is a silent allow: bound it
   out="$(jq -n --arg c "$1" '{tool_name:"Bash", tool_input:{command:$c}}' \
-    | HOME="$FIXTURE_HOME" XDG_STATE_HOME="$FIXTURE_HOME/.local/state" "$GUARD")"
+    | HOME="$FIXTURE_HOME" XDG_STATE_HOME="$FIXTURE_HOME/.local/state" timeout 10 "$GUARD")"
+  [ $? -eq 124 ] && { echo hang; return; }
   if [ -z "$out" ]; then echo allow; else jq -r '.hookSpecificOutput.permissionDecision' <<<"$out"; fi
 }
 expect() { # <expected> <command>
@@ -618,6 +620,49 @@ expect allow "cat > notes.md <<'EOF'
 terraform apply
 \`\`\`
 EOF"
+
+# --- the 2026-11-21 review of rung 2 ----------------------------------------
+# & inside source <( ) looped forever (patsub_replacement), so the hook timed
+# out, and a timed-out hook doesn't block
+expect deny  'source <(echo a && terraform apply)'
+expect ask   'source <(echo hi && gcloud projects list)'
+expect allow 'source <(kubectl completion bash 2>&1)'
+expect allow 'source <(grep -v x f && echo y)'
+# options whose value is optional bind only as --opt=value; they used to eat
+# the command after them
+expect deny  'echo x | xargs --replace terraform -chdir={} apply'
+expect deny  'xargs --max-lines terraform apply'
+expect ask   'xargs --eof gcloud x'
+expect ask   'watch --differences gcloud compute instances list'
+expect ask   'watch -d gcloud compute instances list'
+# a heredoc reaching a shell through a filter stage
+expect deny  "cat <<'EOF' | tee run.log | bash
+terraform apply
+EOF"
+expect deny  "cat <<'EOF' | grep -v x | sh
+terraform destroy
+EOF"
+expect allow "cat <<'EOF' | tee run.log
+terraform apply
+EOF"
+# TF_CLI_ARGS set for a child the guard can't see into
+expect deny  'docker run -e TF_CLI_ARGS=-auto-approve img ./deploy.sh'
+expect deny  'podman run --env=TF_CLI_ARGS=-lock=false img ./deploy.sh'
+expect deny  'make deploy TF_CLI_ARGS=-auto-approve'
+expect allow 'docker run -e FOO=1 img ./deploy.sh'
+# a backslash-escaped quote inside $'...' doesn't close it
+expect deny  "printf \$'don\\'t\\n'; terraform apply"
+expect deny  "echo \$'it\\'s'; terraform apply; echo 'x'"
+expect allow "git commit -m \$'fix: don\\'t run terraform apply'"
+# quoted text piped to a shell behind a wrapper that takes a value
+expect deny  "echo 'terraform apply' | sudo -u jet bash"
+expect allow "echo 'terraform apply' | grep -v x"
+# tmux A \; B runs B as a tmux command too
+expect deny  "tmux new-session -d -s x \; send-keys 'terraform apply' Enter"
+expect ask   "tmux -L pt new -d -s x \; split-window \; send-keys 'gcloud x' Enter"
+expect allow "tmux -L pt new-session -d -s x \; send-keys 'ls' Enter"
+expect deny  'tmux new-session -d \; kill-server'
+expect allow 'find . -name "*.tmp" -exec rm {} \;'
 
 # --- fail-open / kill switch ---------------------------------------------
 out="$(printf 'not json' | HOME="$FIXTURE_HOME" XDG_STATE_HOME="$FIXTURE_HOME/.local/state" "$GUARD" 2>/dev/null)"
