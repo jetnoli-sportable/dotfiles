@@ -49,18 +49,28 @@ def generated_elsewhere(entry):
     return bool(source) and not re.search(r"(?<![\w])md2html\.py", source)
 
 
+def rendered(path):
+    """The rendered page for a path: the path itself when it is one (any case), else <stem>.html."""
+    return path if path.suffix.lower() == ".html" else path.with_suffix(".html")
+
+
+def staleness(md, html):
+    # the .md is ahead of the rendered page when it was edited after the render
+    if not html.exists():
+        return {}
+    return {"md_newer_than_html": md.stat().st_mtime > html.stat().st_mtime}
+
+
 def best_local(path, entry):
     """Return (file to read, note, extra fields) for a page path (.html or .md)."""
-    html = path.with_suffix(".html")
+    html = rendered(path)
     md = path.with_suffix(".md")
     if entry and generated_elsewhere(entry) and html.exists():
         return html, f"built by {entry['source']}; the .md lacks the generated parts", {}
     if path.suffix == ".md":
-        return path, "the Markdown source itself", {}
+        return path, "the Markdown source itself", staleness(path, html)
     if md.exists():
-        # the .md is ahead of the rendered page when it was edited after the render
-        newer = md.stat().st_mtime > html.stat().st_mtime
-        return md, "the Markdown source beside the HTML", {"md_newer_than_html": newer}
+        return md, "the Markdown source beside the HTML", staleness(md, html)
     return path, "no Markdown source beside it; read the HTML", {}
 
 
@@ -101,8 +111,8 @@ def main(arg):
     entry = entry_for_file(path)
     read, note, extra = best_local(path, entry)
     out = {"via": "local", "read": str(read), "note": note, **extra}
-    if path.suffix == ".html":
-        out["html"] = str(path)
+    if rendered(path).exists():
+        out["html"] = str(rendered(path))
     if entry:
         out["entry"] = entry_summary(entry)
         if entry.get("url"):
