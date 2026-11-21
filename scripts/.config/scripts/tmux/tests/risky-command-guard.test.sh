@@ -529,6 +529,96 @@ expect allow 'git push origin main'
 expect allow 'git push -u origin feat/x'
 expect allow 'git status'
 
+# --- rung 2: the gaps the 2026-11-08 review left open ----------------------
+# Each row was a GAP in review-2026-11-08-probe-results.tsv (dossier of
+# dotfiles--infra-guardrails). Where this file's expectation differs from the
+# probe's, the comment says whose ruling changed it.
+# a heredoc fed to a shell behind a wrapper the old owner check didn't know
+expect deny  "timeout 600 bash <<'EOF'
+terraform apply
+EOF"
+expect deny  "sudo -u jet bash <<'EOF'
+terraform apply
+EOF"
+expect deny  "\\bash <<'EOF'
+terraform apply
+EOF"
+expect ask   "direnv exec . bash <<'EOF'
+gcloud projects list
+EOF"
+expect ask   "flock /tmp/l bash <<'EOF'
+gcloud projects list
+EOF"
+expect allow "timeout 600 cat <<'EOF'
+terraform apply
+EOF"
+# a wrapper's long option with a separate value
+expect deny  'systemd-run --user --scope --unit tf terraform apply'
+expect deny  'flock --timeout 30 /tmp/tf.lock terraform apply'
+expect deny  'parallel --jobs 4 terraform -chdir={} apply ::: a b'
+expect allow 'parallel --jobs 4 wc -l ::: a b'
+# ::: starts parallel's arguments: a -h there is not terraform's -help
+expect deny  'parallel terraform -chdir={} apply ::: infra -h'
+# a terraform verb only known when it runs asks (ruling 2026-11-21: the probes
+# said deny, but the guard can't know the verb; an ask still reaches Jet)
+expect ask   'for v in init apply; do terraform $v; done'
+expect ask   'terraform $(echo apply)'
+expect ask   'terraform state $(echo rm) aws_instance.x'
+expect allow 'terraform -chdir="$(pwd)" plan'
+# terragrunt global options with a value, and the old *-all names
+expect deny  'terragrunt --log-level debug apply'
+expect deny  'terragrunt run --all --log-level debug -- apply'
+expect deny  'terragrunt apply-all'
+expect deny  'terragrunt destroy-all'
+expect allow 'terragrunt --log-level debug plan'
+# text handed to tmux to run
+expect deny  "tmux new-window -d 'terraform apply'"
+expect ask   "tmux run-shell 'gcloud projects list'"
+expect deny  "tmux send-keys -t x 'terraform apply' Enter"
+expect deny  'tmux new-window -d terraform apply'
+expect allow "tmux new-window -d 'htop'"
+# function bodies, coproc, a script read from process substitution
+expect deny  'function f { terraform apply; }; f'
+expect deny  'coproc terraform apply'
+expect deny  'coproc tf { terraform apply; }'
+expect deny  'source <(echo terraform apply)'
+expect deny  '. <(echo "terraform apply")'
+# a command run inside a container or through a version manager
+expect deny  'docker exec -it tf-runner terraform apply'
+expect deny  'docker exec tfbox terraform apply'
+expect deny  'docker exec -e TF_LOG=debug -w /src tfbox terraform apply'
+expect allow 'docker exec tfbox terraform plan'
+expect ask   'docker run --rm my-tools:latest gcloud projects list'
+expect ask   'docker run --rm my-registry/ops-tools gcloud projects list'
+expect deny  'mise exec -- terraform apply'
+expect deny  'mise exec terraform@1.9 -- terraform apply'
+expect deny  'asdf exec terraform apply'
+expect allow 'mise exec -- terraform plan'
+# a command word built from $( ) or ANSI-C quoting
+expect ask   '$(echo terra)form apply'
+expect deny  "\$'terraform' apply"
+expect deny  'bash -c $'"'"'terraform apply'"'"
+# TF_CLI_ARGS only counts where it sets a variable, not in a message
+expect allow 'git commit -m "TF_CLI_ARGS=-auto-approve is denied now"'
+expect allow 'grep -rn "TF_CLI_ARGS=-auto-approve" docs/'
+expect deny  'TF_CLI_ARGS=-auto-approve'
+expect deny  'env TF_CLI_ARGS_apply=-auto-approve terraform apply'
+expect deny  'declare -x TF_CLI_ARGS="-lock=false"'
+# eval of $( ) keeps asking (Jet, 2026-11-08: no allow-list for ssh-agent or
+# direnv; the probes listed these as gaps before that ruling)
+expect ask   'eval "$(direnv export bash)"'
+# a backtick fence spanning lines in an unquoted heredoc runs the lines between
+expect deny  'cat > notes.md <<EOF
+```
+terraform apply
+```
+EOF'
+expect allow "cat > notes.md <<'EOF'
+\`\`\`
+terraform apply
+\`\`\`
+EOF"
+
 # --- fail-open / kill switch ---------------------------------------------
 out="$(printf 'not json' | HOME="$FIXTURE_HOME" XDG_STATE_HOME="$FIXTURE_HOME/.local/state" "$GUARD" 2>/dev/null)"
 [ -z "$out" ] && echo "ok   - bad payload fails open" || { echo "FAIL - bad payload produced: $out"; fail=1; }
