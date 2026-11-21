@@ -80,15 +80,19 @@ _wb_decide_task_session() {
 _wb_decide_pane_exists() { [ "$(tmux display -p -t "$1" '#{pane_id}' 2>/dev/null)" = "$1" ]; }
 
 # _wb_decide_pane_runs_editor <pane_id> <file> — the pane is alive, is running
-# an editor, and was started on <file>. A pane id that tmux handed out again
-# after a restart, or a pane whose editor quit into a shell, fails.
+# an editor, and was opened on <file>. The split is tagged with the pane option
+# @wb_decide_file, compared exactly: tmux escapes #{pane_start_command} again,
+# so matching the file inside it never worked for a path with a space. A pane
+# id that tmux handed out again after a restart, or a pane whose editor quit
+# into a shell, fails.
 _wb_decide_pane_runs_editor() {
-  local out id rest cmd start
-  out="$(tmux display -p -t "$1" '#{pane_id}|#{pane_current_command}|#{pane_start_command}' 2>/dev/null)" || return 1
+  local out id cmd tag
+  out="$(tmux display -p -t "$1" '#{pane_id}|#{pane_current_command}' 2>/dev/null)" || return 1
   id="${out%%|*}"; [ "$id" = "$1" ] || return 1
-  rest="${out#*|}"; cmd="${rest%%|*}"; start="${rest#*|}"
+  cmd="${out#*|}"
   case "$cmd" in nvim|vim|vi) ;; *) return 1 ;; esac
-  [[ "$start" == *"$(printf '%q' "$2")"* ]]
+  tag="$(tmux show-options -p -v -t "$1" @wb_decide_file 2>/dev/null)" || return 1
+  [ "$tag" = "$2" ]
 }
 
 # _wb_decide_sha <file> — sha256 of the file's content.
@@ -288,7 +292,7 @@ cmd_decide_buffer() {
     # exit first. WB_REVIEW_BUFFER=1 skips format-on-save, as the other
     # review buffers do.
     if ! pane="$(tmux split-window -h -t "$target" -c "${file%/*}" -P -F '#{pane_id}' \
-           "WB_REVIEW_BUFFER=1 $(printf '%q ' "$editor" "$file")" \; set-option -p remain-on-exit off 2>/dev/null)" \
+           "WB_REVIEW_BUFFER=1 $(printf '%q ' "$editor" "$file")" \; set-option -p remain-on-exit off \; set-option -p @wb_decide_file "$file" 2>/dev/null)" \
        || [ -z "$pane" ]; then
       wb_task_lock_release "needs-you-$WB_DECIDE_KEY"
       echo "wb decide-buffer: tmux couldn't open the split" >&2; exit 1

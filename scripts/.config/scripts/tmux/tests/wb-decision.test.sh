@@ -135,6 +135,13 @@ assert_eq "answer after defaults: exactly one entry in force" 1 "$live"
 out="$(printf 'changed my mind.\n' | decision proj--dec-b "Pick format")"
 live=0; for f in $(files proj--dec-b); do [ "$(fm proj--dec-b "$f" status)" = in-force ] && live=$((live + 1)); done
 assert_eq "answer after answer + default: exactly one entry in force" 1 "$live"
+# That answer superseded two live records (the first answer and the default): it lists
+# both in supersedes: and the output reports both.
+M="$(for f in $(files proj--dec-b); do [ "$(fm proj--dec-b "$f" status)" = in-force ] && echo "$f"; done)"
+assert_eq "multi-supersede: the new record lists both older ids" "[${D1%.md}, $A1]" "$(fm proj--dec-b "$M" supersedes)"
+assert "multi-supersede: output reports both, newest first" "supersedes ${D1%.md} \"Pick format\", $A1 \"Pick format\"\)" "$out"
+assert_eq "multi-supersede: both older records point at the new one" "[${M%.md}] [${M%.md}]" \
+  "$(fm proj--dec-b "$A1.md" superseded_by) $(fm proj--dec-b "$D1" superseded_by)"
 
 # Two rounds of one batch keep both.
 mk_task proj--dec-d "layout: dossier"
