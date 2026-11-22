@@ -57,15 +57,16 @@ try to disprove every finding before it reaches the report. Decided
 - **When:** a step in the first weekend run of each month, started by
   hand. The spare-token lanes' automatic launcher takes it over once it
   exists. Not `/schedule`: cloud runs can't see this machine's repos.
-- **What:** the active personal repos plus the work repos, each on a fresh
-  shallow clone of its default branch, at medium effort, one Claude
+- **What:** the active personal repos plus the work repos, each on a shallow
+  clone of its default branch (one fixed folder per repo, refreshed each
+  month), at medium effort, one Claude
   session per repo. The repo list and the script that clones, launches and
   collects live in the private task store, in the task's dossier
   (`dotfiles--ceremony-monthly-security-scan/tools/`), not here.
 - **Where the report goes:** each repo's report is copied into that
   dossier under `runs/<YYYY-MM>/`. That month's weekend report gets one line
-  per repo with the severity counts, and each confirmed finding becomes a
-  task. Reports never go into a scanned repo's git history.
+  per repo with the severity counts, and the month's confirmed findings go
+  into one triage task, ranked by severity. Reports never go into a scanned repo's git history.
 - **Code-modernization:** left out of the first two runs, then looked at
   again. When a lot of tokens are spare on scan day, run it too rather
   than lose them.
