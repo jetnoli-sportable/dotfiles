@@ -41,6 +41,14 @@ Never run `gcloud`, `gsutil` or `bq`, or anything that uses their credentials (e
 - **The one exception:** `terraform fmt`, `validate`, `init`, `plan`, `show`, `graph`, `output` and `state list/show/pull`, and read-only `kubectl` (`get`, `describe`, `logs`), may run without asking even though they use the same credentials. They read live state but don't change it.
 - The `risky-command-guard.sh` PreToolUse hook enforces this for the Bash tool (deny for the terraform writes, ask for every `gcloud`/`gsutil`/`bq` call, including inside `$( )`), but it only sees the typed command text. A script or program that calls them is still covered by this rule.
 
+## Permission prompts → write commands that don't need one
+
+Every permission prompt stops the session until Jet comes back to answer it, and a few command habits cause most of the avoidable ones (counted 22 Nov 2026: about 50 a week). The prompts that protect something stay; these habits avoid the rest.
+
+- **Delete agent scratch by its literal path:** `rm -rf /tmp/claude-1000/<session-dir>/scratchpad/old-run`, never `rm -rf "$S/old-run"` or a `mktemp` variable. `risky-command-guard.sh` lets a recursive delete through without asking only when every target is typed out and lands in `~/.cleanroom/`, `/tmp/claude-<uid>/` or `/tmp/compound-engineering-<uid>/`; it asks on any variable path, on purpose, because the 2026-07-10 deletion of `~/code` started from one.
+- **Change task files only through the `wb` verbs** (`wb append`, `wb now`, `wb set`, `wb status`, `wb followup-done`), never `Edit`, `Write`, `cat >>` or `sed -i` on a task file or dossier file of a task another session is working on. `pretooluse-guard.sh` asks on those hand edits; the verbs take the task's lock, so they never ask.
+- **When auto mode's classifier blocks a push, stow or merge, ask Jet once in chat** with the exact command and why it is safe, then wait. Don't retry it reworded: the block is the classifier's judgement, and a reworded retry either fails again or slips past it.
+
 ## GitHub CLI → use `pgh` for non-Sportable repos
 
 The default `gh` is authenticated with a fine-grained PAT scoped to the **Sportable org**, so it can only see Sportable-org repos. For any repo **not** owned by the Sportable org — personal repos under `github.com/jetnoli-sportable/…`, or any other owner — use the **`pgh`** shell function instead of `gh` for all GitHub API operations (`pr create`, `issue`, `api`, `repo view`, etc.). `pgh` injects the personal-account PAT from the system keyring (defined in `~/.zshrc`).
