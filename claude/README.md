@@ -67,7 +67,10 @@ paths/vocabulary in the invocation prompt instead.
     store verbs (`append`, `now`, `set`, `status`, `followup-done`, typed as
     `wb …` or `~/.config/scripts/tmux/wb.sh …`). A PreToolUse hook's "ask"
     still prompts when an allow rule matches (checked live, 22 Nov 2026), so
-    a lease force-push to a default branch still asks.
+    `risky-command-guard.sh` still asks on the risky forms these rules let
+    through: a lease force-push to a default branch, `git push
+    --receive-pack`/`--exec` (they run a command), and `git diff|log|show
+    --output` (it writes a file).
     `scripts/.config/scripts/tmux/tests/settings-allow-rules.test.sh` keeps
     the list narrow. The first rule pre-authorizes reads under
     `~/code/tasks/`, so spawned agents (`/handoff`, `wb new --agent`) never

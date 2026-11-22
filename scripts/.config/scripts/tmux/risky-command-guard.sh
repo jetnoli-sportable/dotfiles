@@ -622,7 +622,17 @@ check_segment() {
       esac
       ;;
     git)
-      local a r lease push=0 force=0 hitdef=0 unknown=0 runs=0 after=()
+      local a r lease gitsub="" push=0 force=0 hitdef=0 unknown=0 runs=0 after=()
+      # diff, log and show are allowed without a prompt, but --output=<file> makes them write any file
+      for a in "$@"; do
+        if [ -z "$gitsub" ]; then
+          case "$a" in diff|log|show|whatchanged|format-patch) gitsub="$a" ;; [!-]*) gitsub=- ;; esac
+          continue
+        fi
+        case "$a" in
+          --output|--output=*) flag ask "git $gitsub --output writes its output to a file, which may be anywhere"; break ;;
+        esac
+      done
       for a in "$@"; do
         if [ $push = 0 ]; then [ "$a" = push ] && push=1; continue; fi
         case "$a" in

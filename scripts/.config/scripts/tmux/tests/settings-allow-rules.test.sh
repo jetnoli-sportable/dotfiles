@@ -82,7 +82,8 @@ done
 
 # The lease rule lets these through the permission rules; the guard must still ask:
 # default branches however the lease or the destination spells them, refspec
-# globs, and --receive-pack/--exec, which run a command.
+# globs, --receive-pack/--exec, which run a command, and diff/log/show --output,
+# which writes a file.
 for cmd in "git push --force-with-lease=development:abc origin development" \
   "git push --force-with-lease=main:abc origin HEAD:main" \
   "git push --force-with-lease=x:abc origin HEAD" \
@@ -91,12 +92,24 @@ for cmd in "git push --force-with-lease=development:abc origin development" \
   "git push --force-with-lease=refs/heads/main:abc origin feat" \
   "git push --force-with-lease=x:abc origin '+refs/heads/*:refs/heads/*'" \
   "git push --force-with-lease=a --receive-pack='touch /tmp/p; git-receive-pack' . HEAD:refs/heads/t" \
-  "git push --force-with-lease=a --exec=x origin feat"; do
+  "git push --force-with-lease=a --exec=x origin feat" \
+  "git log -1 --format=format:x --output=/tmp/x" \
+  "git diff --output /tmp/x" \
+  "git show HEAD --output=$HOME/.zshrc"; do
   allowed "$cmd" || bad "test premise: the lease rule should match: $cmd"
   out="$(jq -n --arg c "$cmd" '{tool_name: "Bash", tool_input: {command: $c}, cwd: "/tmp"}' | bash "$GUARD")"
   if [ "$(jq -r '.hookSpecificOutput.permissionDecision // empty' <<<"$out")" = ask ]; then
     ok "guard still asks: $cmd"
   else bad "guard does not ask on an allowed lease push: $cmd"; fi
+done
+
+# Ordinary allowed commands stay prompt-free, including the --output-indicator-* look-alikes.
+for cmd in "git diff --output-indicator-new=+ HEAD" "git log --oneline -5" "git show HEAD:README.md" \
+  "git push --force-with-lease=feat/x:abc origin feat/x" "git commit -m 'write --output=x'"; do
+  out="$(jq -n --arg c "$cmd" '{tool_name: "Bash", tool_input: {command: $c}, cwd: "/tmp"}' | bash "$GUARD")"
+  if [ -z "$(jq -r '.hookSpecificOutput.permissionDecision // empty' <<<"$out" 2>/dev/null)" ]; then
+    ok "guard stays quiet: $cmd"
+  else bad "guard asks on an ordinary command: $cmd"; fi
 done
 
 exit "$fail"
