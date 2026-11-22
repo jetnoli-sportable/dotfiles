@@ -4,7 +4,7 @@ status: current
 tile: Pick a task back up after /clear — reads the last /wb-save snapshot and acts on it.
 group: skills
 kind: guide
-updated: 2026-07-14
+updated: 2026-11-15
 ---
 
 ## Overview
@@ -52,6 +52,19 @@ Continuing into the recorded directive: /ce-code-review --full --subagents
 This only happens on the no-gap path. If a `wb pause`/`wb done`/`wb
 resume` cycle landed after the save, the directive is quoted as part of
 "the recorded plan" being confirmed — it is never auto-run across a gap.
+
+## `--continue`: a restart picks up its save
+
+A session started by a [`/wb-continue`](wb-continue.html) restart (or by a
+release from the picker or <kbd>prefix</kbd> <kbd>y</kbd>) opens with
+`/wb-resume --continue <request-id>`. In that mode the skill runs
+`wb continue pickup <request-id>` once and acts only on what it prints: the
+frozen save entry and the one command to carry out. The script, not the skill,
+checks that this session is the one the restart started, that the save is
+unchanged and still the newest, and that the branch and working tree haven't
+moved; it writes one `wb continue (auto)` line to Handoffs naming the old
+session. A refusal is relayed in one line, and a plain `/wb-resume` then reads
+the task file as usual. Plain `/wb-resume` with no arguments is unchanged.
 
 ## Reference
 

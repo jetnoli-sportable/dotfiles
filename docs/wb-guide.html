@@ -551,6 +551,12 @@ sub-row is too, so you can land on the pane itself);</li>
 <li>when the picker opens, the cursor <strong>starts on the first one</strong>. With none,
 it starts on the row just below your own.</li>
 </ul>
+<p>A session whose save is waiting to carry on in a fresh context (see
+<a href="#continuing-in-a-fresh-context-wb-continue">Continuing in a fresh context</a>
+below) shows <strong>ready to continue</strong>, sorted just below the rows that need you;
+its preview shows the save's Done line and the command the fresh Claude will
+run. <kbd>c</kbd> releases it. A release that failed shows <strong>restart failed</strong>
+and can be released again.</p>
 <p>Your own session never counts as needing you, even when its agent is
 waiting: it stays grey. The cursor also stays on its row across the
 3-second refresh, even when that row's colour changes.</p>
@@ -589,6 +595,14 @@ waiting: it stays grey. The cursor also stays on its row across the
 <tr>
 <td><kbd>r</kbd></td>
 <td>Rename the row's tmux session (prompts inline, cosmetic only — doesn't touch the task file or worktree)</td>
+</tr>
+<tr>
+<td><kbd>c</kbd></td>
+<td>Continue the row's saved session in a fresh context (<code>wb continue release</code>): the pane restarts with a fresh Claude on that save, after the same checks the automatic restart uses. The outcome shows as a tmux message</td>
+</tr>
+<tr>
+<td><kbd>C</kbd></td>
+<td>The same for every <strong>ready to continue</strong> row; a row whose save has drifted is refused, the others still go</td>
 </tr>
 <tr>
 <td><kbd>b</kbd></td>
@@ -668,6 +682,11 @@ wb session the view also stacks the task's earlier sessions (before any
 <code>reply-log</code> plugin's Stop hook records. That hook runs beside the notify
 hook and wb-capture's hooks and never changes what they do. See
 <a href="guides/reply-log.html">the reply-log guide</a>.</p>
+<p>After a <a href="#continuing-in-a-fresh-context-wb-continue">wb continue</a> restart, turns
+of the old session that finished after you last left the pane are marked as
+<strong>unseen</strong>: <code>(N unseen)</code> on the picker row and an amber <code>●N unseen</code> in the status
+bar. <kbd>prefix</kbd>+<kbd>v</kbd> then opens at a divider above the first of
+them instead of at the bottom, and opening it clears the marks.</p>
 <h2 id="prefixi-and-the-picker-preview--the-session-card">prefix+i and the picker preview — the session card</h2>
 <p>The picker's preview shows each row's <strong>context card</strong>: the session's
 state (busy, waiting on you, idle, or quiet after 10 silent busy minutes),
@@ -723,6 +742,22 @@ each Claude starts only when you visit its window and press Enter. A list entry
 must be an exact task stem: no matching task file, or a session still open, and
 it is skipped with the reason printed. If an agent window never shows a shell
 prompt, the command is printed for you to type instead.</p>
+<h3 id="continuing-in-a-fresh-context-wb-continue">Continuing in a fresh context: /wb-continue</h3>
+<p><code>/wb-continue &lt;instruction&gt;</code> saves, restarts the pane with a fresh Claude and
+carries out the instruction, so a session that needs a fresh context (a build
+reaching its code review) no longer waits for you to type <code>/clear</code> and
+<code>/wb-resume</code>. A Stop hook does the restart at the end of the turn, once nothing is
+still running; a script hands the fresh Claude exactly the save that asked for
+it, or refuses if the save, the branch or the working tree changed since. A
+continue you typed restarts by itself; one a session started by itself does only
+for a code review, and only when you aren't looking at the pane. Everything else
+waits in the picker as <strong>ready to continue</strong>: <kbd>c</kbd> releases a row,
+<kbd>C</kbd> all of them, and <kbd>prefix</kbd> <kbd>y</kbd> releases the pane
+you're in after any <code>/wb-save</code>. Each restart adds a <code>wb continue (auto)</code> line to
+Handoffs naming the old session (<code>claude --resume &lt;id&gt;</code> reopens it). The
+automatic restart starts in shadow mode (logged, not done) until
+<code>~/.local/state/wb/continue-live</code> exists. Full rules, the waits and refusals:
+<a href="guides/wb-continue.html">wb-continue</a>.</p>
 <p><strong>Resuming is warm by default.</strong> Bringing a dormant or paused task back —
 via the picker's dormant rows or <code>wb resume &lt;task&gt;</code> — rebuilds the usual
 3-window layout and pre-types a resume command in the agent window instead
@@ -1354,6 +1389,10 @@ details, incident history, and runbooks live in
 <tr>
 <td><code>wb restart [--dry-run] &lt;list-file&gt;|--crashed</code></td>
 <td>Brings back many sessions after a crash or reboot: runs <code>wb resume</code> on each task stem (one per line in the list file; <code>--crashed</code> builds the list from the store) and pre-types <code>claude &quot;/wb-resume&quot;</code> in each agent window without pressing Enter. See &quot;After a crash&quot; below.</td>
+</tr>
+<tr>
+<td><code>wb continue stage|arm|status|drop|release|pickup</code></td>
+<td>The request behind <code>/wb-continue</code> and the ready-to-continue list: <code>stage</code> (what <code>/wb-save</code> runs), <code>arm</code> (what <code>/wb-continue</code> runs), <code>release &lt;task&gt;|--all|--pane &lt;pane&gt;</code> (the picker's <kbd>c</kbd>/<kbd>C</kbd> and <kbd>prefix</kbd> <kbd>y</kbd>), <code>pickup &lt;id&gt;</code> (the fresh Claude, once). See &quot;Continuing in a fresh context&quot; above.</td>
 </tr>
 <tr>
 <td><code>wb append &lt;task&gt; &lt;heading&gt; &lt;text&gt;</code></td>

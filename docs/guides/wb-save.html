@@ -236,7 +236,7 @@
 <div class="statusbar">
   <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
   <span class="gen">docgen · generated from <b>docs/guides/wb-save.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-11-14</span>
+  <span class="right">updated 2026-11-15</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -298,6 +298,11 @@ deterministically instead of re-reading prose:</p>
 </code></pre>
 <p>No directive is written if you don't state a concrete next action — a
 plain &quot;save my progress&quot; produces the four-field entry with no directive.</p>
+<p>Every save is also staged as a ready request (<code>wb continue stage</code>), so you can
+carry it on in a fresh context later without visiting the pane:
+<kbd>prefix</kbd> <kbd>y</kbd> in the pane, or <kbd>c</kbd> on its picker row
+(the row shows <strong>ready to continue</strong> when the save has a next command). To save
+and restart in one step, use <a href="wb-continue.html"><code>/wb-continue</code></a>.</p>
 <h2 id="reference">Reference</h2>
 <table>
 <thead>
@@ -328,6 +333,10 @@ plain &quot;save my progress&quot; produces the four-field entry with no directi
 <td>Shells out to <code>wb append &lt;task_file&gt; Handoffs</code> (the locked, heading-scoped append verb) with the four-field block over stdin — never an Edit/Write-tool edit to a task file</td>
 </tr>
 <tr>
+<td>Stage</td>
+<td>Then <code>wb continue stage &lt;task_file&gt;</code>: records the save (a frozen copy of the entry, the branch tip, a working-tree hash) as a ready request for a later release. Types nothing, restarts nothing</td>
+</tr>
+<tr>
 <td>Entry shape</td>
 <td><code>### &lt;YYYY-MM-DD HH:MM&gt; — wb-save</code> heading (no <code>(auto)</code> suffix — that's reserved for <code>wb.sh</code>'s own mechanical <code>pause</code>/<code>done</code>/<code>resume</code> entries), then <code>**Drift:**</code>/<code>**Done:**</code>/<code>**In flight:**</code>/<code>**Next:**</code></td>
 </tr>
@@ -353,7 +362,9 @@ used to correct or edit something already recorded; that's a manual
 task-file edit instead.</li>
 <li><strong>Never invokes <code>/clear</code> itself, never touches tmux state</strong> beyond the
 one read-only <code>@task</code> lookup. This is a closed design boundary, not a
-gap — see Overview.</li>
+gap — see Overview. Continuing in a fresh context without a manual <code>/clear</code>
+is <a href="wb-continue.html"><code>/wb-continue</code></a>'s job, and even there a Stop hook
+restarts the pane, never a skill.</li>
 <li><strong>The task file keeps one handoff, not a log:</strong>
 each save moves the old one to <code>handoffs/</code>. &quot;Never touches existing content&quot; still
 holds, because the old entry is moved, not edited. See <a href="../wb-guide.html">wb-guide</a>, &quot;Dossier layout&quot;.</li>

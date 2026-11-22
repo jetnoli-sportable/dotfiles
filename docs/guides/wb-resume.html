@@ -236,7 +236,7 @@
 <div class="statusbar">
   <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
   <span class="gen">docgen · generated from <b>docs/guides/wb-resume.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-14</span>
+  <span class="right">updated 2026-11-15</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -246,6 +246,7 @@
     <ul>
       <li><a href="#overview">Overview</a></li>
       <li><a href="#try-it-now">Try it now</a></li>
+      <li><a href="#--continue-a-restart-picks-up-its-save">--continue: a restart picks up its save</a></li>
       <li><a href="#reference">Reference</a></li>
       <li><a href="#known-rough-edges">Known rough edges</a></li>
       <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
@@ -292,6 +293,17 @@ Continuing into the recorded directive: /ce-code-review --full --subagents
 </code></pre>
 <p>This only happens on the no-gap path. If a <code>wb pause</code>/<code>wb done</code>/<code>wb resume</code> cycle landed after the save, the directive is quoted as part of
 &quot;the recorded plan&quot; being confirmed — it is never auto-run across a gap.</p>
+<h2 id="--continue-a-restart-picks-up-its-save"><code>--continue</code>: a restart picks up its save</h2>
+<p>A session started by a <a href="wb-continue.html"><code>/wb-continue</code></a> restart (or by a
+release from the picker or <kbd>prefix</kbd> <kbd>y</kbd>) opens with
+<code>/wb-resume --continue &lt;request-id&gt;</code>. In that mode the skill runs
+<code>wb continue pickup &lt;request-id&gt;</code> once and acts only on what it prints: the
+frozen save entry and the one command to carry out. The script, not the skill,
+checks that this session is the one the restart started, that the save is
+unchanged and still the newest, and that the branch and working tree haven't
+moved; it writes one <code>wb continue (auto)</code> line to Handoffs naming the old
+session. A refusal is relayed in one line, and a plain <code>/wb-resume</code> then reads
+the task file as usual. Plain <code>/wb-resume</code> with no arguments is unchanged.</p>
 <h2 id="reference">Reference</h2>
 <table>
 <thead>

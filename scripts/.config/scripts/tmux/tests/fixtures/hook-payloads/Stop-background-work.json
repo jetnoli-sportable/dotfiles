@@ -1,0 +1,45 @@
+{
+  "session_id": "__SESSION_ID__",
+  "transcript_path": "__HOME__/.claude/projects/-home-__USER__--cleanroom-acr-automode-test-a/__SESSION_ID__.jsonl",
+  "cwd": "__CWD__",
+  "scratchpad_dir": "__TMPDIR__/__SESSION_ID__/scratchpad",
+  "prompt_id": "__PROMPT_ID__",
+  "permission_mode": "acceptEdits",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "Started all four: a 25-second background sleep, a monitor that prints \"monitor-done\" after 20 seconds, a background agent that sleeps 15 seconds and replies \"done\", and a one-time cron job (04d7af41) that sends \"/wb-continue from-cron\" at 1:29pm.",
+  "background_tasks": [
+    {
+      "id": "b8mauqeqx",
+      "type": "shell",
+      "status": "running",
+      "description": "Sleep 25 seconds in background",
+      "command": "sleep 25"
+    },
+    {
+      "id": "baj6ls1xl",
+      "type": "shell",
+      "status": "running",
+      "description": "20s sleep then monitor-done",
+      "command": "sleep 20; echo monitor-done"
+    },
+    {
+      "id": "a2578335e0988e35f",
+      "type": "subagent",
+      "status": "running",
+      "description": "Sleep 15 and reply done",
+      "agent_type": "general-purpose"
+    }
+  ],
+  "session_crons": [
+    {
+      "id": "04d7af41",
+      "schedule": "29 13 15 11 *",
+      "recurring": false,
+      "prompt": "/wb-continue from-cron"
+    }
+  ]
+}

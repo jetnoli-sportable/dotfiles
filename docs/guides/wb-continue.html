@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>wb-continue</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  
+
+  (function () {
+    try { var t = localStorage.getItem('theme');
+          if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+    document.addEventListener('DOMContentLoaded', function () {
+      var b = document.createElement('button');
+      b.className = 'theme-toggle'; b.type = 'button';
+      function lbl() { var c = document.documentElement.dataset.theme;
+        b.textContent = c === 'dark' ? '◐ dark' : c === 'light' ? '○ light' : '◑ auto';
+        b.setAttribute('aria-label', 'Theme: ' + (c || 'auto (system)') + ' — click to change'); }
+      lbl();
+      b.addEventListener('click', function () {
+        var r = document.documentElement, c = r.dataset.theme;
+        var n = c === 'dark' ? 'light' : c === 'light' ? '' : 'dark';
+        try { if (n) { r.dataset.theme = n; localStorage.setItem('theme', n); }
+              else { delete r.dataset.theme; localStorage.removeItem('theme'); } } catch (e) {}
+        lbl();
+      });
+      document.body.appendChild(b);
+    });
+  })();
+</script>
+<style>
+   
+  :root {
+     
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  } }
+  :root[data-theme="dark"] {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  }
+  :root[data-theme="light"] {
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+  }
+   
+  [data-group="start-here"]   { --g: var(--g-start); }
+  [data-group="workflow"]     { --g: var(--g-workflow); }
+  [data-group="skills"]       { --g: var(--g-skills); }
+  [data-group="tuis"]         { --g: var(--g-tuis); }
+  [data-group="nvim"]         { --g: var(--g-nvim); }
+  [data-group="design-notes"] { --g: var(--g-notes); }
+  [data-group="recaps"]       { --g: var(--g-recaps); }
+  :root { --g: var(--acc); }    
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+  .statusbar .crumb a { color: var(--acc2); text-decoration: none; }
+  .statusbar .crumb a:hover { text-decoration: underline; }
+  .statusbar .crumb .sep { color: var(--mut); }
+  .statusbar .gen { color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0;
+           max-width: min(1560px, 92vw); margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+   
+  .shell header.guide-banner { margin: -2.5rem -3rem 1.8rem; padding: 1.5rem 3rem 1.6rem;
+       background: var(--g); color: var(--banner-ink); }
+  .shell header.guide-banner .eyebrow { color: color-mix(in srgb, var(--banner-ink) 72%, transparent); }
+  .shell header.guide-banner h1 { color: var(--banner-ink); margin: .25rem 0 .45rem; }
+  .shell header.guide-banner .dek { font-size: 1.05rem; max-width: 62ch; text-wrap: balance;
+       margin: 0; color: color-mix(in srgb, var(--banner-ink) 84%, transparent); }
+  .shell header.guide-banner .meta { margin-top: .8rem; }
+  .shell header.guide-banner .chip { color: var(--banner-ink);
+       border-color: color-mix(in srgb, var(--banner-ink) 45%, transparent); background: transparent; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+    .shell header.guide-banner { margin: -2rem -1.25rem 1.3rem; padding: 1.25rem 1.25rem 1.35rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: min(1560px, 92vw); margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 72%, var(--line)); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; color: var(--g); }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem;
+          background: color-mix(in srgb, var(--g) 18%, var(--panel));
+          border: 1px solid color-mix(in srgb, var(--g) 42%, var(--line));
+          border-left: 4px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--g); transform: translateY(-2px);
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--g) 55%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.25rem; color: var(--g); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+   
+  .theme-toggle { position: fixed; bottom: 1rem; right: 1rem; z-index: 50;
+    font-family: var(--mono); font-size: .72rem; padding: .35rem .7rem;
+    background: var(--panel); color: var(--ink2); border: 1px solid var(--line);
+    border-radius: 999px; cursor: pointer; box-shadow: 0 2px 10px -4px color-mix(in srgb, var(--ink) 40%, transparent); }
+  .theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
+  .theme-toggle:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="guide" data-group="skills">
+<div class="statusbar">
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
+  <span class="gen">docgen · generated from <b>docs/guides/wb-continue.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-11-15</span>
+</div>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">wb-continue</div>
+    <div class="brand-sub">Save and carry on in a fresh context, without visiting the pane to type /clear and /wb-resume.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#try-it-now">Try it now</a></li>
+      <li><a href="#who-decides-whether-it-restarts-by-itself">Who decides whether it restarts by itself</a></li>
+      <li><a href="#when-it-waits-and-when-it-refuses">When it waits, and when it refuses</a></li>
+      <li><a href="#output-you-missed">Output you missed</a></li>
+      <li><a href="#reference">Reference</a></li>
+      <li><a href="#shadow-mode-and-the-off-switch">Shadow mode and the off switch</a></li>
+      <li><a href="#known-rough-edges">Known rough edges</a></li>
+      <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="doc guide-banner">
+      <span class="eyebrow">skills · guide</span>
+      <h1>wb-continue</h1>
+      <p class="dek">Save and carry on in a fresh context, without visiting the pane to type /clear and /wb-resume.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<h2 id="overview">Overview</h2>
+<p>A wb session that needs a fresh context used to stop and wait for you to type
+<code>/clear</code> and then <code>/wb-resume</code>. With several sessions running, most of those
+visits decided nothing: the save already said what was done and what came next.
+<code>/wb-continue</code> removes them.</p>
+<pre><code>/wb-continue &lt;instruction&gt;
+</code></pre>
+<p>means: save, restart this pane with a fresh Claude, and do this. It runs
+<code>/wb-save</code>'s procedure, then asks for a restart. When the turn ends, the
+wb-continue Stop hook checks that nothing is still running and restarts the same
+pane with a fresh Claude. That Claude is handed the save through
+<code>/wb-resume --continue</code>, which a script checks: it is exactly the save that asked
+for the restart, nothing newer landed, and the branch and working tree haven't
+moved since.</p>
+<p>A Claude can't clear its own context: Claude Code's auto-mode check refused an
+agent typing <code>/clear</code> into its own pane, twice, in July 2026. So nothing here
+types into a Claude. The hook restarts the pane's shell and types the launch
+command into the shell.</p>
+<p>Saves that shouldn't restart by themselves wait in the picker's <strong>ready to
+continue</strong> list, and one key starts them.</p>
+<h2 id="try-it-now">Try it now</h2>
+<p>In a wb session, at a point where the next step can run in a fresh context:</p>
+<pre><code>/wb-continue tell me where things stand on the entrypoint PR
+</code></pre>
+<p>The session saves, says the pane will restart when the turn ends, and stops.
+While shadow mode is on (see below), nothing restarts: the log records what would
+have happened, and you <code>/clear</code> and <code>/wb-resume</code> as usual. With shadow mode off,
+the same pane shows a fresh Claude a few seconds later. Its first line names the
+save it received, and then it answers your instruction.</p>
+<p>Any plain <code>/wb-save</code> can be continued later too:</p>
+<ul>
+<li>In the pane: <kbd>prefix</kbd> <kbd>y</kbd>.</li>
+<li>In the picker: the row shows <strong>ready to continue</strong> when the save has a next
+command. <kbd>c</kbd> releases that row, <kbd>C</kbd> every ready row.</li>
+</ul>
+<h2 id="who-decides-whether-it-restarts-by-itself">Who decides whether it restarts by itself</h2>
+<table>
+<thead>
+<tr>
+<th>Who asked</th>
+<th>The command</th>
+<th>Restarts by itself?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>You typed <code>/wb-continue …</code> (the turn opened with it)</td>
+<td>anything</td>
+<td>yes, with your words passed on verbatim</td>
+</tr>
+<tr>
+<td>The session called it by itself (a build reaching its review)</td>
+<td>a read-only code review: <code>/ce-code-review</code>, <code>/compound-engineering:ce-code-review</code> or <code>/code-review</code>, with no arguments or only the read-only ones listed below</td>
+<td>yes, unless you're looking at the pane, then it waits in the ready list</td>
+</tr>
+<tr>
+<td>The session called it by itself</td>
+<td>a review with any other argument, or anything else</td>
+<td>no, it waits in the ready list</td>
+</tr>
+<tr>
+<td>The session declined (you have to act first, e.g. switch the model)</td>
+<td>anything</td>
+<td>no, it waits in the ready list</td>
+</tr>
+<tr>
+<td>A session started by a restart, by itself</td>
+<td>anything</td>
+<td>no, it waits in the ready list</td>
+</tr>
+<tr>
+<td>A plain <code>/wb-save</code></td>
+<td>any or none</td>
+<td>no, it's staged for a release</td>
+</tr>
+</tbody>
+</table>
+<p>The read-only arguments are, for <code>/ce-code-review</code> and
+<code>/compound-engineering:ce-code-review</code>: <code>plan:&lt;path&gt;</code>, <code>base:&lt;ref&gt;</code>,
+<code>depth:&lt;value&gt;</code>, <code>grouping:&lt;value&gt;</code>, <code>mode:agent</code>, <code>mode:headless</code> and a bare PR
+number. For <code>/code-review</code>: <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>--max-findings &lt;n&gt;</code>
+(or <code>=&lt;n&gt;</code>, or <code>all</code>) and a bare PR number. Anything else on a session-written
+review sends it to the ready list with the reason &quot;the review command has
+arguments that are not read-only review options&quot;: <code>apply:local</code>, <code>--fix</code>,
+<code>--comment</code>, <code>max</code>, free words (<code>/ce-code-review then push and open the PR</code>), a
+second line, or <code>&amp;&amp;</code> and <code>;</code>. A command that is not a review at all gets &quot;the
+command is not a code review&quot;. What you typed is never checked this way: any
+<code>/wb-continue</code> instruction you typed restarts by itself.</p>
+<p>The fresh Claude is told who wrote the command: its pick-up prints a <code>Command source:</code> line, &quot;typed by Jet&quot; for your words or &quot;written by the saving session,
+not by Jet&quot; for the session's own plan, which it carries out as written without
+treating it as something you said. When you released the restart yourself
+(<kbd>c</kbd>, <kbd>C</kbd>, <kbd>prefix</kbd> <kbd>y</kbd>) for a session-written
+command, the line adds &quot;; Jet released the restart&quot;: you approved the restart,
+not the words. Only the line directly above &quot;Command to carry out:&quot; counts.</p>
+<p>A script decides the row, never the session: it reads the transcript's record of
+the prompt that opened the turn. A cron job, a task notification, a message from
+another session or a usage-limit resume never counts as typed by you. &quot;Looking at
+the pane&quot; means it's in copy mode, or it's the active pane of the active window
+of a session whose client was used in the last minute.</p>
+<h2 id="when-it-waits-and-when-it-refuses">When it waits, and when it refuses</h2>
+<p>Nothing restarts while any of these hold. The request waits for the next quiet
+turn end; if it is still waiting 30 minutes after the save, the next turn end
+moves it to the ready list:</p>
+<ul>
+<li>background work is running (monitors don't count);</li>
+<li>a scheduled job is pending;</li>
+<li>a <code>/decide</code> surface is open for the task;</li>
+<li>a new turn started, or there's text or a dialog on the input line.</li>
+</ul>
+<p>A release (<kbd>c</kbd>, <kbd>C</kbd>, <kbd>prefix</kbd> <kbd>y</kbd>) that only
+has to wait for one of these, or for a turn in progress, text on the input line, a
+locked request or a missing turn-end record, tells you why in the tmux message
+(or the picker's line) and in <code>continue.log</code>, and leaves the status line alone:
+waiting is not a failure, so the yellow mark never shows for it.</p>
+<p>A release of a saved (not armed) request that waits on background work says &quot;background
+work was still running at the last turn end; when it finishes, save again&quot;: the work's
+own turn end would count as the session working on after the save, so the release would
+then be refused.</p>
+<p>A release also waits, with &quot;no turn end was recorded since the save (is the
+wb-continue hook loaded?)&quot;, when the Stop hook has not recorded a turn end for the
+save yet; without that record it can't tell whether background work is running.</p>
+<p>A restart is <strong>refused</strong>, and the save is left untouched, when the save entry
+changed, a newer Handoffs entry landed, the branch moved, or the working tree
+changed since the save. A release is also refused with &quot;the session kept working
+after the save; save again&quot; when a turn ended after the save's own turn: the
+fresh Claude would start from an older save and silently drop those turns (the
+old session is still there with <code>claude --resume &lt;old-id&gt;</code>). Run <code>/wb-save</code>
+again, then release. A request that was armed and waited through turn ends for
+background work is not counted against this: those turn ends belong to the same
+continue. A turn <em>you</em> open while an armed request waits does count: the next turn
+end refuses the request with the same reason (it never restarts a session you kept
+working in), and you save again. A background task's notification turn or other
+non-human turn doesn't. Only a refusal or a failed restart shows as a yellow <code>↻N</code> in the status
+line (its reason is on the pane, and the row's reason in the picker); the next
+save in that pane clears it. <code>/clear</code> then <code>/wb-resume</code> always works as before.</p>
+<p>A restart that began but never finished (the helper was killed, or its pane is
+gone) stops blocking after five minutes (longer if you raised the prompt or pick-up
+timeouts: never shorter than the helper's own waits plus a minute): the next save or
+release turns it into a failed request naming the old session, and a failed request can
+be released again. A request that already respawned its pane keeps the fresh session's
+id through any wait, so it stays releasable: the release accepts the fresh Claude, the
+Claude that saved (a helper killed before the respawn) or none, never another Claude.
+A release also refuses when the restarted Claude has been used: if its transcript
+shows a prompt you sent other than the pick-up prompt (a turn you opened, or a
+message you typed while it was working), the request is refused with
+&quot;the restarted session was used; save again there&quot;, so a release never kills a
+Claude you have been working in.</p>
+<p>A pane at a plain shell is free to restart only when that shell has no child process:
+a script, a loop or a background job in it blocks the release (&quot;a command is still
+running in the pane's shell&quot;). Text typed after a bare shell prompt is not detected.</p>
+<h2 id="output-you-missed">Output you missed</h2>
+<p>A restart takes the old session's last replies off the screen. Gaining and
+losing focus both stamp a Claude pane, so the stamp is when you last left it.
+Before a restart, the turns that finished after that stamp are counted (by when
+each turn ended, so a turn you watched start but not finish counts). The count
+shows as <code>(N unseen)</code> on the picker row and an amber <code>●N unseen</code> in the status
+bar, and adds up across restarts. <kbd>prefix</kbd> <kbd>v</kbd> opens the reply
+viewer at a divider above the first unseen turn and clears the marks. A restart of
+the pane you're looking at (a <code>/wb-continue</code> you typed) counts nothing. Reload
+tmux (<kbd>prefix</kbd> <kbd>r</kbd>) once after the stow for the stamps to
+start.</p>
+<h2 id="reference">Reference</h2>
+<table>
+<thead>
+<tr>
+<th>Piece</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>wb continue stage [&lt;task&gt;]</code></td>
+<td>What <code>/wb-save</code> runs after its entry lands: records the save as a ready request</td>
+</tr>
+<tr>
+<td><code>wb continue arm [--decline] [&lt;task&gt;]</code></td>
+<td>What <code>/wb-continue</code> runs: records the request and picks its row</td>
+</tr>
+<tr>
+<td><code>wb continue status [&lt;task&gt;]</code> / <code>drop [&lt;task&gt;]</code></td>
+<td>Show or remove the task's request</td>
+</tr>
+<tr>
+<td><code>wb continue release &lt;task&gt; | --all | --pane &lt;pane&gt;</code></td>
+<td>Your release: the same checks, then the restart (picker <kbd>c</kbd>/<kbd>C</kbd>, <kbd>prefix</kbd> <kbd>y</kbd>)</td>
+</tr>
+<tr>
+<td><code>wb continue pickup &lt;request-id&gt;</code></td>
+<td>Run by the fresh Claude through <code>/wb-resume --continue</code>; single use</td>
+</tr>
+<tr>
+<td><code>~/.local/state/wb/continue/&lt;task&gt;/</code></td>
+<td>The request: a frozen copy of the save entry, the instruction, the branch tip and working-tree hash at save time</td>
+</tr>
+<tr>
+<td><code>~/.local/state/wb/continue.log</code></td>
+<td>One line per change: <code>&lt;time&gt; wbc event=… stem=… id=… state=… reason=&quot;…&quot;</code></td>
+</tr>
+<tr>
+<td><code>wb-continue-hook</code> plugin</td>
+<td>The Stop and SessionStart hooks (<code>wb-continue-hook.sh</code>); never also wire them in <code>settings.json</code></td>
+</tr>
+<tr>
+<td>Handoffs</td>
+<td>Each restart adds one <code>wb continue (auto)</code> entry naming the old session; <code>claude --resume &lt;old-id&gt;</code> reopens it</td>
+</tr>
+</tbody>
+</table>
+<h2 id="shadow-mode-and-the-off-switch">Shadow mode and the off switch</h2>
+<p>The automatic restart ships in <strong>shadow mode</strong>: every check runs and the log gets
+<code>event=would-restart</code>, but nothing restarts. Your own releases (<kbd>c</kbd>,
+<kbd>C</kbd>, <kbd>prefix</kbd> <kbd>y</kbd>) are live from the start. After a
+few days of the log agreeing with what you did by hand, turn shadow mode off:</p>
+<pre><code>touch ~/.local/state/wb/continue-live
+</code></pre>
+<p>To turn the feature off entirely (the hooks exit at once, sessions behave as they
+did before): <code>touch ~/.local/state/wb/disable-continue</code>.</p>
+<h2 id="known-rough-edges">Known rough edges</h2>
+<ul>
+<li><strong>One Claude per tmux session.</strong> A second Claude in the same session never
+claims a request, and that's all the handling it gets.</li>
+<li><strong>Messages sent during the restart's few seconds</strong> go to a session that no
+longer exists. The sender's own task file still records the decision.</li>
+<li><strong>The input-line check reads Claude's screen.</strong> If Claude Code changes its
+prompt glyph, every restart waits (it fails closed) until the check is updated.</li>
+</ul>
+<h2 id="next-steps--reverting">Next steps / reverting</h2>
+<ul>
+<li>Pairs with <a href="wb-save.html"><code>/wb-save</code></a> (save and stay) and
+<a href="wb-resume.html"><code>/wb-resume</code></a>, whose <code>--continue</code> mode is what the fresh
+Claude runs.</li>
+<li>To revert: <code>touch ~/.local/state/wb/disable-continue</code>, or remove the
+<code>wb-continue-hook</code> plugin link from <code>~/.claude/skills/</code> and restart Claude.</li>
+</ul>
+</article>
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/guides/wb-continue.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+  </main>
+</div>
+
+</body>
+</html>
