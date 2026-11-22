@@ -9,6 +9,8 @@
 #   hook-stop            Stop hook: the turn just ended; block the stop with the
 #                        pointer so Claude carries straight on with the review
 #   hook-session-start   SessionStart hook: add the pointer to Claude's context
+#   hook-stop-failure    StopFailure hook: the turn died on an API error; only
+#                        drop the hand-over marker, print nothing
 #   deliver <stem>       run by the review server after Send: type the pointer
 #                        at an idle session's prompt, when every guard passes;
 #                        otherwise leave the review queued and say why
@@ -29,8 +31,15 @@
 #   review/<stem>/queue/pending|claimed|delivered/<id>.json, queue/inflight,
 #   queue/status                       the queue contract written by wb-store
 #
+# A block starts a turn no UserPromptSubmit announces, and claude-notify-hook.sh's
+# Stop handler marks the pane done. So the block also sets @claude_agent_wbreview
+# (an epoch, the shape of a subagent marker: the notify hook counts it as a live
+# agent) and queue/inflight records "<pane> <epoch>". The next hook-stop,
+# session start or StopFailure of the task's pane clears both.
+#
 # Tunables (env): WB_REVIEW_SETTLE_MS (1500) and WB_REVIEW_SETTLE_MAX_MS (5000)
-# for the idle wait before typing.
+# for the idle wait before typing; WB_REVIEW_INFLIGHT_MAX_S (1800), how long an
+# in-flight marker is trusted when no hook ever cleared it (an interrupt).
 set -uo pipefail
 
 WBRH_SRC="${BASH_SOURCE[0]}"
@@ -70,7 +79,7 @@ wbrh_stem_of() {
 }
 
 case "$WBRH_VERB" in
-  hook-stop | hook-session-start)
+  hook-stop | hook-session-start | hook-stop-failure)
     exec 2>/dev/null
     [ -e "$WBRH_STATE/disable-review" ] && exit 0
     [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = 0 ] && exit 0
@@ -189,18 +198,48 @@ wbrh_pane_stem() {
   wbrh_stem_of "$task"
 }
 
+# wbrh_resync_working <pane> — after dropping our busy marker, put @claude_working
+# back to what claude-notify-hook.sh's sync_working would derive (a running turn
+# or a fresh subagent marker keeps it set), since its own Stop handler may have
+# run first and seen our marker.
+wbrh_resync_working() {
+  local name val live=0
+  [ -n "$(tmux show -pv -t "$1" @claude_turn 2>/dev/null)" ] && live=1
+  while read -r name val; do
+    case "$name" in @claude_agent_*) ;; *) continue ;; esac
+    [[ "$val" =~ ^[0-9]+$ ]] && ((EPOCHSECONDS - val < 7200)) && live=1
+  done < <(tmux show -p -t "$1" 2>/dev/null)
+  if [ "$live" = 1 ]; then tmux set -p -t "$1" @claude_working 1; else tmux set -pu -t "$1" @claude_working; fi
+}
+
+# wbrh_clear_busy <pane> — drop the busy marker the last block set.
+wbrh_clear_busy() {
+  tmux set -pu -t "$1" @claude_agent_wbreview 2>/dev/null
+  wbrh_resync_working "$1"
+}
+
 # --- hook verbs --------------------------------------------------------------------
 
 wbrh_hook() {
-  local stem
+  local stem q
   stem="$(wbrh_pane_stem)" || return 0
+  q="$WBRH_Q/$stem/queue"
   # A hook of this task's session ends the hand-over the last block started.
-  rm -f "$WBRH_Q/$stem/queue/inflight"
+  if [ -e "$q/inflight" ]; then
+    rm -f "$q/inflight"
+    wbrh_clear_busy "$TMUX_PANE"
+  fi
+  [ "$WBRH_VERB" = hook-stop-failure ] && return 0
   wbrh_has_pending "$stem" || return 0
   if [ "$WBRH_VERB" = hook-stop ]; then
     wbrh_continue_pending && return 0
     wbrh_claim "$stem" turn-end || return 0
-    : >"$WBRH_Q/$stem/queue/inflight"
+    printf '%s %s\n' "$TMUX_PANE" "$EPOCHSECONDS" >"$q/inflight"
+    # Both Stop hooks run in parallel: the marker keeps the notify hook's own
+    # derivation busy when it runs after us, the direct sets win when it ran first.
+    tmux set -p -t "$TMUX_PANE" @claude_agent_wbreview "$EPOCHSECONDS"
+    tmux set -p -t "$TMUX_PANE" @claude_working 1
+    tmux set -pu -t "$TMUX_PANE" @claude_blocked
     jq -n --arg r "$WBRH_POINTER" '{decision: "block", reason: $r}'
   else
     wbrh_claim "$stem" session-start || return 0
@@ -278,6 +317,20 @@ wbrh_find_pane() {
   return 1
 }
 
+# wbrh_inflight_live <file> — the hand-over is still being worked on: the marker
+# is younger than WB_REVIEW_INFLIGHT_MAX_S and its pane still carries the busy
+# marker. An interrupt or a StopFailure leaves the marker behind with no hook to
+# clear it. Sets WBRH_INFLIGHT_PANE.
+wbrh_inflight_live() {
+  local pane ts max="${WB_REVIEW_INFLIGHT_MAX_S:-1800}"
+  WBRH_INFLIGHT_PANE=""
+  read -r pane ts <"$1" || true
+  [[ "$pane" =~ ^%[0-9]+$ ]] && WBRH_INFLIGHT_PANE="$pane"
+  [[ "$ts" =~ ^[0-9]+$ ]] && ((EPOCHSECONDS - ts < max)) || return 1
+  [ -n "$WBRH_INFLIGHT_PANE" ] || return 1
+  [ -n "$(tmux show -pv -t "$WBRH_INFLIGHT_PANE" @claude_agent_wbreview 2>/dev/null)" ]
+}
+
 wbrh_deliver() {
   local stem="$1" pane info working mode
   wbrh_has_pending "$stem" || return 0
@@ -293,8 +346,12 @@ wbrh_deliver() {
   fi
   pane="$WBRH_PANE"
   if [ -e "$WBRH_Q/$stem/queue/inflight" ]; then
-    wbrh_status "$stem" "a review hand-over is still being worked on"
-    return 0
+    if wbrh_inflight_live "$WBRH_Q/$stem/queue/inflight"; then
+      wbrh_status "$stem" "a review hand-over is still being worked on"
+      return 0
+    fi
+    rm -f "$WBRH_Q/$stem/queue/inflight"
+    [ -n "$WBRH_INFLIGHT_PANE" ] && wbrh_clear_busy "$WBRH_INFLIGHT_PANE"
   fi
   info="$(tmux display-message -p -t "$pane" '#{@claude_working}|#{pane_in_mode}' 2>/dev/null)" || info=""
   IFS='|' read -r working mode <<<"$info"
@@ -326,7 +383,7 @@ wbrh_deliver() {
 }
 
 case "$WBRH_VERB" in
-  hook-stop | hook-session-start) wbrh_hook ;;
+  hook-stop | hook-session-start | hook-stop-failure) wbrh_hook ;;
   deliver) wbrh_deliver "$2" ;;
 esac
 exit 0

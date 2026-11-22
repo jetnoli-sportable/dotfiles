@@ -11,6 +11,17 @@
         ]
       }
     ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${WB_REVIEW_BIN:-$HOME/.config/scripts/tmux}/wb-review-hook.sh\" hook-stop-failure",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [

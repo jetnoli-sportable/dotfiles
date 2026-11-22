@@ -136,9 +136,11 @@ assert_eq "AE1: delivered item keeps its record" "$REC_A" "$(jq -r .record "$RQ/
 assert_eq "AE1: pending and claimed are empty" "0 0" "$(pending_n tk-a) $(find "$RQ/tk-a/queue/claimed" -name '*.json' | wc -l)"
 [ ! -e "$RQ/tk-a/queue/status" ] && ok "AE1: status removed on delivery" || bad "AE1: status removed on delivery"
 [ -e "$RQ/tk-a/queue/inflight" ] && ok "block writes queue/inflight" || bad "block writes queue/inflight"
+assert_eq "block: inflight records pane and epoch" "$P1 yes" "$(read -r a b <"$RQ/tk-a/queue/inflight"; [[ "$b" =~ ^[0-9]+$ ]] && echo "$a yes")"
+assert_eq "block: busy marker is an epoch" yes "$([[ "$(t show -pv -t "$P1" @claude_agent_wbreview 2>/dev/null)" =~ ^[0-9]+$ ]] && echo yes)"
+assert_eq "block: @claude_working is set" 1 "$(t show -pv -t "$P1" @claude_working 2>/dev/null)"
 
 # --- inflight: deliver is busy until the next hook-stop clears it ---------------------------
-t set -pu -t "$P1" @claude_working
 item tk-a r-2 "$REC_B"
 : >"$CALLS"
 deliver tk-a
@@ -147,11 +149,78 @@ assert_eq "inflight: status says a hand-over is being worked on" "a review hand-
 mv "$RQ/tk-a/queue/pending/r-2.json" "$FIX/r-2.json"
 hook hook-stop "$P1" >/dev/null
 [ ! -e "$RQ/tk-a/queue/inflight" ] && ok "inflight: the next hook-stop removes it" || bad "inflight: the next hook-stop removes it"
+assert_eq "next hook-stop clears the busy marker" "" "$(t show -pv -t "$P1" @claude_agent_wbreview 2>/dev/null)"
+assert_eq "next hook-stop lets @claude_working go (no turn, no agent)" "" "$(t show -pv -t "$P1" @claude_working 2>/dev/null)"
 assert_eq "AE1: second hook-stop after delivery prints nothing" "" "$(hook hook-stop "$P1")"
 mv "$FIX/r-2.json" "$RQ/tk-a/queue/pending/r-2.json"
 : >"$CALLS"
 deliver tk-a
 assert_eq "inflight cleared: deliver types the pointer" 2 "$(sends)"
+endsessions
+
+# --- the marker keeps the notify hook's derivation busy -------------------------------------------
+reset
+newpane s1 tk-a prompt
+P1="$PANE"
+item tk-a r-1 "$REC_A"
+t set -p -t "$P1" @claude_turn 1
+hook hook-stop "$P1" >/dev/null
+t set -pu -t "$P1" @claude_turn 2>/dev/null
+NOTIFY="$SELF_DIR/claude-notify-hook.sh"
+TMUX_PANE="$P1" bash "$NOTIFY" "done" </dev/null
+assert_eq "notify done after the block: still working" 1 "$(t show -pv -t "$P1" @claude_working 2>/dev/null)"
+assert_eq "notify done after the block: not flagged done" "" "$(t show -pv -t "$P1" @claude_blocked 2>/dev/null)"
+hook hook-stop "$P1" >/dev/null
+assert_eq "clearing after notify ran first: working released" "" "$(t show -pv -t "$P1" @claude_working 2>/dev/null)"
+endsessions
+
+# --- interrupt: a block with no later Stop must not wedge deliver -------------------------------------
+reset
+newpane s1 tk-a prompt
+P1="$PANE"
+item tk-a r-1 "$REC_A"
+hook hook-stop "$P1" >/dev/null
+# Esc: no Stop. The pane is idle again, the marker and inflight remain.
+t set -pu -t "$P1" @claude_working 2>/dev/null
+item tk-a r-2 "$REC_B"
+: >"$CALLS"
+deliver tk-a
+assert_eq "fresh inflight, pane still marked busy: deliver types nothing" 0 "$(sends)"
+assert_eq "fresh inflight, pane still marked busy: existing status" "a review hand-over is still being worked on" "$(status_of tk-a)"
+t set -pu -t "$P1" @claude_agent_wbreview 2>/dev/null
+: >"$CALLS"
+deliver tk-a
+assert_eq "inflight whose pane lost the marker: pointer typed" 2 "$(sends)"
+assert_eq "inflight whose pane lost the marker: delivered via prompt" prompt "$(delivered_route tk-a r-2)"
+[ ! -e "$RQ/tk-a/queue/inflight" ] && ok "stale inflight removed by deliver" || bad "stale inflight removed by deliver"
+endsessions
+
+# aged out: marker still on the pane, but older than the limit
+reset
+newpane s1 tk-a prompt
+P1="$PANE"
+item tk-a r-1 "$REC_A"
+hook hook-stop "$P1" >/dev/null
+t set -pu -t "$P1" @claude_working 2>/dev/null
+item tk-a r-2 "$REC_B"
+: >"$CALLS"
+WB_REVIEW_INFLIGHT_MAX_S=0 deliver tk-a
+assert_eq "aged-out inflight: pointer typed" 2 "$(sends)"
+assert_eq "aged-out inflight: stale busy marker cleared" "" "$(t show -pv -t "$P1" @claude_agent_wbreview 2>/dev/null)"
+endsessions
+
+# --- StopFailure: drop the marker, print nothing ---------------------------------------------------------
+reset
+newpane s1 tk-a prompt
+P1="$PANE"
+item tk-a r-1 "$REC_A"
+hook hook-stop "$P1" >/dev/null
+item tk-a r-2 "$REC_B"
+out="$(hook hook-stop-failure "$P1")"
+assert_eq "StopFailure: prints nothing" "" "$out"
+[ ! -e "$RQ/tk-a/queue/inflight" ] && ok "StopFailure: inflight removed" || bad "StopFailure: inflight removed"
+assert_eq "StopFailure: busy marker cleared" "" "$(t show -pv -t "$P1" @claude_agent_wbreview 2>/dev/null)"
+assert_eq "StopFailure: does not claim a pending item" 1 "$(pending_n tk-a)"
 endsessions
 
 # --- AE2: idle -> pointer typed, Enter separate ----------------------------------------------
@@ -357,9 +426,9 @@ MANIFEST="$PLUGIN/.claude-plugin/plugin.json"
 assert_eq "plugin name" wb-review-hook "$(jq -r .name "$MANIFEST" 2>/dev/null)"
 assert_eq "manifest keys are name/description/author only" '["author","description","name"]' "$(jq -c keys "$MANIFEST" 2>/dev/null)"
 [ ! -e "$PLUGIN/SKILL.md" ] && ok "plugin dir carries no SKILL.md (hooks only)" || bad "plugin dir carries no SKILL.md (hooks only)"
-assert_eq "plugin: exactly Stop and SessionStart" '["SessionStart","Stop"]' "$(jq -c '.hooks | keys' "$HOOKS" 2>/dev/null)"
-assert_eq "plugin: one hook per event" 2 "$(jq '[.hooks[][].hooks[]] | length' "$HOOKS" 2>/dev/null)"
-for pair in Stop:hook-stop SessionStart:hook-session-start; do
+assert_eq "plugin: exactly Stop, StopFailure and SessionStart" '["SessionStart","Stop","StopFailure"]' "$(jq -c '.hooks | keys' "$HOOKS" 2>/dev/null)"
+assert_eq "plugin: one hook per event" 3 "$(jq '[.hooks[][].hooks[]] | length' "$HOOKS" 2>/dev/null)"
+for pair in Stop:hook-stop StopFailure:hook-stop-failure SessionStart:hook-session-start; do
   ev="${pair%%:*}" want="${pair#*:}"
   assert_eq "$ev: timeout 5, synchronous" "5 false" "$(jq -r ".hooks.${ev}[0].hooks[0] | \"\(.timeout) \(.async == true)\"" "$HOOKS" 2>/dev/null)"
   cmd="$(jq -r ".hooks.${ev}[0].hooks[0].command" "$HOOKS" 2>/dev/null)"
