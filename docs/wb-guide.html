@@ -1219,6 +1219,34 @@ build (<code>WB_STORE_SRC</code>) and the default build each keep their own serv
 server started some other way (a plain <code>wb-store serve</code>) is never stopped;
 <code>pkill -f 'wb-store.*serve'</code> clears every one. If the server exits without
 printing its URL, <code>wb page</code> says so at once and shows the log's last lines.</p>
+<h3 id="wb-review-a-tasks-diff-in-a-review-page"><code>wb review</code>: a task's diff in a review page</h3>
+<p><code>wb review</code> opens the current session's task in a local review page drawn by
+<code>wb-store review</code>: the task's changes against the merge-base with the repo's
+default branch, laid out like GitHub's &quot;Files changed&quot; tab, with viewed ticks
+and line comments sent back to the task's session as one review. <code>wb review &lt;task&gt;</code> opens another task's page. A task with no worktree on disk is refused.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Opens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>v</code> in the picker</td>
+<td>the highlighted task's review page</td>
+</tr>
+<tr>
+<td><code>prefix+R</code></td>
+<td>this session's review page (<code>wb review --task</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>The review server is separate from the page server: it binds <code>127.0.0.1</code> from
+port 8776, falling forward up to 8785, so no agent-written dossier page shares
+its origin. <code>wb review</code> reuses it and restarts it the same way <code>wb page</code> does,
+logging to <code>~/.local/state/wb/review-server.log</code>. The page opens in a Chromium
+app window when Chromium is installed.</p>
 <h2 id="wb-board---html--the-full-board-v2"><code>wb board --html</code> — the full board (v2)</h2>
 <p><code>wb board --html</code> writes <code>logs/board.html</code> (gitignored, overwritten on every
 call) — a richer, filterable view over the whole store that goes well beyond

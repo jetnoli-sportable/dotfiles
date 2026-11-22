@@ -987,6 +987,25 @@ server started some other way (a plain `wb-store serve`) is never stopped;
 `pkill -f 'wb-store.*serve'` clears every one. If the server exits without
 printing its URL, `wb page` says so at once and shows the log's last lines.
 
+### `wb review`: a task's diff in a review page
+
+`wb review` opens the current session's task in a local review page drawn by
+`wb-store review`: the task's changes against the merge-base with the repo's
+default branch, laid out like GitHub's "Files changed" tab, with viewed ticks
+and line comments sent back to the task's session as one review. `wb review
+<task>` opens another task's page. A task with no worktree on disk is refused.
+
+| Key | Opens |
+|---|---|
+| `v` in the picker | the highlighted task's review page |
+| `prefix+R` | this session's review page (`wb review --task`) |
+
+The review server is separate from the page server: it binds `127.0.0.1` from
+port 8776, falling forward up to 8785, so no agent-written dossier page shares
+its origin. `wb review` reuses it and restarts it the same way `wb page` does,
+logging to `~/.local/state/wb/review-server.log`. The page opens in a Chromium
+app window when Chromium is installed.
+
 ## `wb board --html` — the full board (v2)
 
 `wb board --html` writes `logs/board.html` (gitignored, overwritten on every
