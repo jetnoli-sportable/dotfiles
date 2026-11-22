@@ -84,7 +84,7 @@ Each added or changed comment gets one of three outcomes.
 
   ```tmux
   # Open the task picker
-  bind t run-shell "wb pick"
+  bind m new-window -c "$HOME" "~/.config/scripts/tmux/wb.sh"
   ```
 
 - docgen takes a `.sh` script's first comment line after the shebang as its
@@ -141,11 +141,18 @@ flag.
 ### 1. Collect
 
 Run the commands in Scope. List each added or changed comment line with its
-file and line number. If there are none, say "nothing to trim", make an
-empty commit with `git commit --allow-empty` (subject
-`chore: trim comments (haircut, nothing to trim)`, with the attribution lines
-the session requires) so the review-start gate can see the sweep ran, and
-stop. Never `--no-verify`.
+file and line number. If there are none, or step 2 removes none, the sweep
+found nothing to trim. Say "nothing to trim", record the sweep, and stop
+there: make no commit, empty or otherwise. Recording it lets the
+review-start gate see that the sweep ran:
+
+```bash
+git rev-parse HEAD > "$(git rev-parse --path-format=absolute --git-path haircut-clean)"
+```
+
+The file sits in this worktree's git dir, so it is never committed. The gate
+accepts it until a new code commit lands or a rebase rewrites the swept
+commit. After that, run `/haircut` again.
 
 ### 2. Decide
 
@@ -264,8 +271,9 @@ wb append <task> Follow-ups - "lib/c.py:15: dense date regex needs its comment; 
 6. A comment that predates the branch, on a line the branch did not touch:
    untouched.
 7. A `#` line inside a heredoc: untouched.
-8. No comments in the diff: reports "nothing to trim" and makes the empty
-   `chore: trim comments (haircut, nothing to trim)` commit.
+8. No comments in the diff, or every one kept: reports "nothing to trim",
+   makes no commit, and writes HEAD's SHA to the worktree's `haircut-clean`
+   file; the review gate then lets a review of the branch start.
 9. Dirty tree with an uncommitted code edit in a file whose branch comment is
    trimmed: the haircut commit holds only the comment change, and the code
    edit is still uncommitted and unstaged afterwards.

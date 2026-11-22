@@ -8,5 +8,9 @@ return {
 	-- completion source (callout and checkbox names).
 	opts = {
 		completions = { blink = { enabled = true } },
+		-- The default border ("hide") conceals a code block's fence lines, and
+		-- snacks.image hangs a rendered ```mermaid diagram under the closing
+		-- fence, so the diagram showed only with the cursor on that line.
+		code = { border = "thin" },
 	},
 }

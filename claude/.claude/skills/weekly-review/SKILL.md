@@ -12,8 +12,13 @@ also absorbs `/parked-items`' reconciliation (R6) and `/hindsight`'s process-ret
 ## Evidence, in this fixed order
 
 Gather all four before classifying anything — later steps route items collected in
-earlier ones, so order matters. Run from the dotfiles repo (main checkout, not a
-worktree — `wb week`/`wb reconcile` are stowed there).
+earlier ones, so order matters. Call `wb` (the stowed command on PATH), never a
+worktree's own `scripts/…/wb.sh`. Why: `wb week`/`wb reconcile` find the store by
+absolute path from any cwd, so a worktree session is fine, but the command that
+runs is whatever `~/.config/scripts/tmux/wb.sh` links to. Check with `readlink -f
+~/.config/scripts/tmux/wb.sh`: if it points into a feature worktree rather than
+the main checkout, say so in the Retro and confirm that branch doesn't change
+`wb week` or `wb reconcile` before relying on it.
 
 **1. `wb reconcile --machine`** — task-store/git worktree drift, machine-readable (R6,
 first evidence step, replacing `/parked-items`' reconciliation). Parse per
@@ -89,8 +94,13 @@ live family session is affected" lines.
 **4. Skill-usage counts** — reproducible per-skill counts with stated blind spots (R29):
 
 ```bash
-scripts/.config/scripts/skill-usage.sh --skills-dir claude/.claude/skills --since <last-record-date-or-30d-ago>
+scripts/.config/scripts/skill-usage.sh --skills-dir claude/.claude/skills --since <YYYY-MM-DD>
 ```
+
+`--since` takes only an ISO date: the previous record's date, or with no previous
+record the date 30 days ago, computed first (`date -d '30 days ago' +%F`). A
+relative string like `30d-ago` fails. Transcripts older than about a month may be
+gone, so the counts' first-seen dates show the real window; state it.
 
 A zero count is NOT DETECTED, never "unused" — carry that caveat forward if you cite a
 count in a suggestion.
@@ -125,6 +135,10 @@ grievances/workflow items don't need a row — they're narrative, not a decision
 one implies a concrete action worth a verdict too). Cap candidate rows at **five** (R4) —
 if classification produced more, pick the five most load-bearing and note the rest
 explicitly as carried over to next week's capture doc rather than silently dropped.
+After a long gap (W47 came nine weeks after W38), propose in chat first: entries
+already covered or watch-only get a one-line note in the record instead of a row,
+work entries go to their own tasks as follow-ups, and the live ones are grouped
+into rows. Exceed five rows only when Jet agrees.
 
 Each row's `suggested` verdict is one of: `Seed as prospective task` / `Seed as planned
 task` / `Already covered (name the existing task)` / `Drop`, with a one-line `reason`.

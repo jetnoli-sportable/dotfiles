@@ -180,7 +180,7 @@ Before handing off to `wb done`, look for anything that would make winding
 down this task premature or would get silently lost with it:
 
 - **Other live panes/windows in this same tmux session** — a co-located
-  `/handoff-pane` helper, an nvim buffer with unsaved edits. `wb done`'s own
+  `handoff.sh --pane` helper agent, an nvim buffer with unsaved edits. `wb done`'s own
   dirty-tree check only looks at `git status --porcelain` (on-disk state);
   it cannot see an unsaved-but-never-written buffer in another window, and a
   `--close` wind-down would take that window down with the session, no

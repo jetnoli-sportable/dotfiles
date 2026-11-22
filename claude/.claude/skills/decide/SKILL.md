@@ -74,10 +74,13 @@ dotfiles repo.
 
 1. `f=$(wb decide-path)` prints a fresh answer file (reserved empty) under the
    task's dossier `decision-records/`.
-2. Write the questions into `$f` with the Write tool, in one of the four shapes
+2. Read `$f` first (the Write tool refuses an existing file it hasn't read, and
+   the reserved file exists, empty), then write the questions into it with the
+   Write tool, in one of the four shapes
    in `references/buffer-shapes.md` (Questions, Interview, Code-review triage,
    Run and paste). Load only the shape you use. No option is ever pre-ticked.
-3. Run `wb decide-buffer "$f"` as a **background** Bash command
+3. Only once the Write has succeeded (an empty file opens an empty split), run
+   `wb decide-buffer "$f"` as a **background** Bash command
    (`run_in_background: true`), never foreground. It opens nvim in a split of
    the task's tmux session, marks the task as needing Jet, and blocks until he
    closes the split.

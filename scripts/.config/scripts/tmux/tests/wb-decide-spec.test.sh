@@ -89,6 +89,29 @@ assert "items layout with one option: rejected" "item $first: .*two options" "$o
 m="$(mutate items 'del(.layout)')"; out="$(check "$m")"
 assert "missing layout: rejected" 'layout' "$out"
 
+# Verdicts and option rules.
+m="$(mutate verdicts '.verdicts = [.verdicts[0]]')"; out="$(check "$m")"; rc=$?
+assert_eq "fewer than two verdicts: exit 1" 1 "$rc"
+assert "fewer than two verdicts: says so" 'at least two verdicts' "$out"
+m="$(mutate verdicts '.verdicts[0].tone = "purple"')"; out="$(check "$m")"; rc=$?
+assert_eq "unknown verdict tone: exit 1" 1 "$rc"
+assert "unknown verdict tone: names the verdict" 'verdict fix has an unknown tone' "$out"
+m="$(mutate verdicts '.verdicts[1].id = .verdicts[0].id')"; out="$(check "$m")"; rc=$?
+assert_eq "duplicate verdict id: exit 1" 1 "$rc"
+assert "duplicate verdict id: names the id" 'verdict id fix is not unique' "$out"
+m="$(mutate items '.items[0].options[1].id = .items[0].options[0].id')"; out="$(check "$m")"; rc=$?
+assert_eq "duplicate option id: exit 1" 1 "$rc"
+assert "duplicate option id: names the item and id" "item $first: option id .* is not unique" "$out"
+m="$(mutate items '.items[0].default = "no-such-option"')"; out="$(check "$m")"; rc=$?
+assert_eq "default not an option id: exit 1" 1 "$rc"
+assert "default not an option id: names the item" "item $first: default no-such-option is not one of its option ids" "$out"
+m="$(mutate triage '.items[0].options |= map(select(.id != "array"))')"; out="$(check "$m")"; rc=$?
+assert_eq "triage with no real alternative: exit 1" 1 "$rc"
+assert "triage with no real alternative: names the item" 'item t1: .*real alternative' "$out"
+m="$(mutate triage '.items[0].options[1].recommended = true')"; out="$(check "$m")"; rc=$?
+assert_eq "triage with two recommended: exit 1" 1 "$rc"
+assert "triage with two recommended: names the item" 'item t1: .*exactly one recommended' "$out"
+
 # Every problem is printed, not just the first.
 m="$(mutate items '.items[1].id = .items[0].id | .items[0].blocks = [{"type":"nope"}]')"; out="$(check "$m")"
 assert_eq "several problems: one line each" 2 "$(printf '%s\n' "$out" | grep -c '^item ')"

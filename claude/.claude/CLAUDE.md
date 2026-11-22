@@ -12,7 +12,7 @@ Trivial decisions (one obvious option, yes/no with an obvious default) and a sin
 
 When setting up a new worktree (via `ce-worktree`, `wb new`, or otherwise) for a branch/ticket, first check the central task store at `~/code/tasks/` for an existing task file matching the target repo and name/ticket number — filter by the `repo:` frontmatter field (the repo's basename), then match the slug. Task filenames are `<repo>--<slug>.md` where the slug has `/` and `.` sanitized to `-` (e.g. repo `be--monorepo`, branch `feat/sfb-1062-…` → look for `~/code/tasks/be--monorepo--feat-sfb-1062-*.md`). If one exists, read it and use it as the starting point/context for the work — it often already captures the problem, the intended fix, and prior decisions. Surface what you found rather than starting from scratch. If none matches, proceed normally.
 
-(Superseded the older per-repo `scratch/tasks/` convention — see `dotfiles/docs/roadmap.md` §0/§3 and `~/code/tasks/README.md` for the schema and why it moved centrally.)
+(Superseded the older per-repo `scratch/tasks/` convention — see `~/code/tasks/README.md` for the schema and why it moved centrally.)
 
 ## Worktree setup → copy gitignored bootstrap files (all repos)
 
@@ -30,7 +30,7 @@ When a `/ce-code-review` of the session's own branch finishes inside a `wb` sess
 
 ## Before any code review → run `/haircut` first
 
-After implementation and any simplification pass, and before any code review starts, run `/haircut` on the branch diff and commit its result. This covers `ce-work`'s shipping step (after simplify, before `ce-code-review`), a review started by a `/wb-resume` `run` directive in a fresh session, and a review Jet asks for by hand. The rules for what it keeps, removes and flags live in `~/.claude/skills/haircut/SKILL.md`; don't restate them here. The haircut gate (`haircut-gate-hook.sh`, on the Skill tool and on typed prompts) stops a `/ce-code-review` of the current branch when no haircut commit follows the branch's newest code commit; run `/haircut`, commit its result (an empty commit when there is nothing to trim), then retry. The gate only sees commits: code edited after the last haircut and left uncommitted passes it unswept, so still run `/haircut` first.
+After implementation and any simplification pass, and before any code review starts, run `/haircut` on the branch diff and commit its result. This covers `ce-work`'s shipping step (after simplify, before `ce-code-review`), a review started by a `/wb-resume` `run` directive in a fresh session, and a review Jet asks for by hand. The rules for what it keeps, removes and flags live in `~/.claude/skills/haircut/SKILL.md`; don't restate them here. The haircut gate (`haircut-gate-hook.sh`, on the Skill tool and on typed prompts) stops a `/ce-code-review` of the current branch when no haircut commit follows the branch's newest code commit; run `/haircut` and commit its result, then retry. A sweep with nothing to trim makes no commit. It records the swept HEAD in the worktree's git dir, and the gate accepts that. The gate only sees commits: code edited after the last haircut and left uncommitted passes it unswept, so still run `/haircut` first.
 
 ## Live cloud commands → Jet runs them; hand over a command card
 
@@ -51,7 +51,7 @@ The default `gh` is authenticated with a fine-grained PAT scoped to the **Sporta
 
 ## HTML artifacts → durable landing path first, never scratch-only
 
-Any HTML doc worth publishing as a claude.ai Artifact must FIRST be written to a durable landing path — the repo's `docs/` when it's tracked-worthy, else the central task store's dossier area (`~/code/tasks/dossiers/<repo>--<slug>/`). Never leave it only in the session scratchpad or `/tmp`: scratch dirs get cleaned and the doc becomes unrecoverable (this happened; see `dotfiles/docs/roadmap.md` 9d). Publishing to claude.ai is the preview, the file on disk is the artifact.
+Any HTML doc worth publishing as a claude.ai Artifact must FIRST be written to a durable landing path — the repo's `docs/` when it's tracked-worthy, else the central task store's dossier area (`~/code/tasks/dossiers/<repo>--<slug>/`). Never leave it only in the session scratchpad or `/tmp`: scratch dirs get cleaned and the doc becomes unrecoverable (this happened once). Publishing to claude.ai is the preview, the file on disk is the artifact.
 
 - Boundary: employer-repo (Sportable) content never lands in, or gets published from, personal surfaces — work docs go in the work repo's own scratch/docs conventions.
 - The Artifact URL may be shared in chat, but the durable path must be named alongside it.

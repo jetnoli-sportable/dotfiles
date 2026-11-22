@@ -6,6 +6,8 @@
 # the whole worktree-relative path, a trailing `/` matches a directory only.
 # Anything matching neither list stops `wb done` until resolved with
 # `--keep <path>` or `--throwaway <path>`. Credential-shaped files are never kept.
+# Rules naming one repo's own paths go in ~/.config/wb/sweep.local.list (same
+# format, never committed), so this file stays repo-agnostic.
 keep:.claude-queue.md
 keep:CLAUDE.local.md
 
@@ -21,3 +23,8 @@ throwaway:target/
 throwaway:coverage/
 throwaway:logs/
 throwaway:*.log
+throwaway:.ruff_cache/
+# Terraform downloads and lock file; `terraform init` rebuilds both. Only
+# gitignored files are swept, so a repo that commits its lock file is unaffected.
+throwaway:.terraform/
+throwaway:.terraform.lock.hcl

@@ -52,6 +52,7 @@ mb="$(git -C "$cwd" merge-base "$base" HEAD 2>/dev/null)" || exit 0
 # backwards after a rebase or amend. Whichever of "code commit" and "haircut
 # commit" comes first decides.
 unswept=""
+unswept_sha=""
 while IFS=$'\t' read -r sha subject; do
   # The subject /haircut commits with (claude/.claude/skills/haircut/SKILL.md).
   case "$subject" in "chore: trim comments (haircut"*) break ;; esac
@@ -59,12 +60,27 @@ while IFS=$'\t' read -r sha subject; do
   if git -C "$cwd" diff-tree --root --no-commit-id --name-only -r "$sha" 2>/dev/null |
     grep -qv -e '\.md$' -e '^docs/'; then
     unswept="$(git -C "$cwd" log -1 --format='%h %s' "$sha")"
+    unswept_sha="$sha"
     break
   fi
 done < <(git -C "$cwd" log --topo-order --format='%H%x09%s' "$mb..HEAD" 2>/dev/null)
 [ -n "$unswept" ] || exit 0
 
-reason="haircut gate: the newest code commit has no /haircut sweep after it ($unswept). Run /haircut, commit its result, then retry the review."
+# A sweep that found nothing to trim makes no commit; it records the HEAD it
+# swept in this worktree's git dir instead. That counts when the newest code
+# commit is in the swept history and the swept commit is still on this branch,
+# so a rebase or a later code commit needs a fresh sweep.
+clean_file="$(git -C "$cwd" rev-parse --path-format=absolute --git-path haircut-clean 2>/dev/null)"
+if [ -n "$clean_file" ] && [ -f "$clean_file" ]; then
+  swept="$(head -n1 "$clean_file" 2>/dev/null)"
+  if [ -n "$swept" ] &&
+    git -C "$cwd" merge-base --is-ancestor "$unswept_sha" "$swept" 2>/dev/null &&
+    git -C "$cwd" merge-base --is-ancestor "$swept" HEAD 2>/dev/null; then
+    exit 0
+  fi
+fi
+
+reason="haircut gate: the newest code commit has no /haircut sweep after it ($unswept). Run /haircut (it commits its trims, or records a nothing-to-trim sweep), then retry the review."
 if [ "$event" = PreToolUse ]; then
   jq -n --arg r "$reason" \
     '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'

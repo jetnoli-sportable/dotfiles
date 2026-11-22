@@ -114,6 +114,26 @@ commit "$r" src/a.sh "code"
 g -C "$r" commit -q --allow-empty -m 'chore: trim comments (haircut, nothing to trim)'
 check "empty nothing-to-trim haircut counts as a sweep" allow "$(skill_payload $CR "" "$r")"
 
+clean_mark() { # <repo> [rev]: record a nothing-to-trim sweep of rev (default HEAD)
+  g -C "$1" rev-parse "${2:-HEAD}" >"$(g -C "$1" rev-parse --path-format=absolute --git-path haircut-clean)"
+}
+r="$(new_repo b2)"
+commit "$r" src/a.sh "code"
+clean_mark "$r"
+check "nothing-to-trim marker at HEAD counts as a sweep" allow "$(skill_payload $CR "" "$r")"
+commit "$r" notes.md "md after marker"
+check "marker, then md-only commit" allow "$(skill_payload $CR "" "$r")"
+commit "$r" src/a.sh "code after marker"
+check "code commit after marker" deny "$(skill_payload $CR "" "$r")"
+clean_mark "$r"
+g -C "$r" commit -q --amend -m "code after marker, amended"
+check "marker of a commit no longer on the branch" deny "$(skill_payload $CR "" "$r")"
+echo "not-a-sha" >"$(g -C "$r" rev-parse --path-format=absolute --git-path haircut-clean)"
+check "garbage marker" deny "$(skill_payload $CR "" "$r")"
+g -C "$r" worktree add -q -b feat/y "$ROOT/b2-wt" HEAD 2>/dev/null
+clean_mark "$r"
+check "marker is per worktree" deny "$(skill_payload $CR "" "$ROOT/b2-wt")"
+
 r="$(new_repo c)"
 commit "$r" docs/a.txt "docs"
 commit "$r" b.md "md"

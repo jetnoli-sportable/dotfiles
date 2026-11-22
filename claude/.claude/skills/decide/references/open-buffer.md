@@ -16,7 +16,7 @@ this script instead of repeating the recipe. It moved here from the retired
 `decision-buffer` skill in Nov 2026. `/decide`'s own buffer does not use it:
 that one is `wb decide-buffer` (see `../SKILL.md`, section 3).
 
-## The four modes
+## The five modes
 
 Exactly one of these runs per invocation, chosen by the caller (this script
 never auto-detects and silently falls back — a caller that guesses wrong
@@ -80,7 +80,7 @@ process and have nothing later to reattach to or reopen.
   `terminal`/`manual` mode (nothing to wait on via tmux).
 - `pane_id` — the tmux pane id the split opened in, captured via
   `split-window -P -F '#{pane_id}'`. Empty outside `tmux` mode.
-- `mode` — which of the four modes wrote this file. `--reattach` reads it
+- `mode` — which of the five modes wrote this file. `--reattach` reads it
   first and refuses outright if it isn't `tmux` (see below).
 - `opened_at` — unix timestamp of this open. Informational; nothing in
   the script currently acts on staleness by age.
