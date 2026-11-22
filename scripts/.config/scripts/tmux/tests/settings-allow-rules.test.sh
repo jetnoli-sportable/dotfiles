@@ -80,11 +80,18 @@ for r in "${ALLOW[@]}"; do
   esac
 done
 
-# The lease rule lets these through the permission rules; the guard must still ask.
+# The lease rule lets these through the permission rules; the guard must still ask:
+# default branches however the lease or the destination spells them, refspec
+# globs, and --receive-pack/--exec, which run a command.
 for cmd in "git push --force-with-lease=development:abc origin development" \
   "git push --force-with-lease=main:abc origin HEAD:main" \
   "git push --force-with-lease=x:abc origin HEAD" \
-  "git push --force-with-lease=x:abc"; do
+  "git push --force-with-lease=x:abc" \
+  "git push --force-with-lease=main origin feat:heads/main" \
+  "git push --force-with-lease=refs/heads/main:abc origin feat" \
+  "git push --force-with-lease=x:abc origin '+refs/heads/*:refs/heads/*'" \
+  "git push --force-with-lease=a --receive-pack='touch /tmp/p; git-receive-pack' . HEAD:refs/heads/t" \
+  "git push --force-with-lease=a --exec=x origin feat"; do
   allowed "$cmd" || bad "test premise: the lease rule should match: $cmd"
   out="$(jq -n --arg c "$cmd" '{tool_name: "Bash", tool_input: {command: $c}, cwd: "/tmp"}' | bash "$GUARD")"
   if [ "$(jq -r '.hookSpecificOutput.permissionDecision // empty' <<<"$out")" = ask ]; then

@@ -392,7 +392,7 @@ set_sessions "other foo.md"
 run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
 # Shown only under contention (PR #130 dropped the hint when every write
 # asked); it names the locked verbs that write without asking (22 Nov 2026).
-if printf '%s' "$OUT" | grep -q 'use a wb verb (wb append, wb now, wb set, wb status, wb followup-done)'; then
+if printf '%s' "$OUT" | grep -q 'use wb append, wb now or wb followup-done'; then
   echo "ok   - contention ask names the wb verbs that write without a prompt"
 else
   echo "FAIL - contention ask does not name the wb verbs"; fail=1
