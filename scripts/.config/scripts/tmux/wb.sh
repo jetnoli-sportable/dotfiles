@@ -9051,7 +9051,7 @@ picker() {
         --bind "p:execute(\"$SELF\" _down {8})+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
         --bind "c:execute-silent(\"$SELF\" _continue-release {9})+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
         --bind "C:execute-silent(\"$SELF\" _continue-release-all)+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
-        --bind "v:execute-silent(\"$SELF\" _review {9})" \
+        --bind "v:execute-silent(\"$SELF\" _review {9} >/dev/null 2>&1 &)" \
         --bind "n:become(\"$SELF\" _new)" \
         --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7} {9})" \
         --bind "i:execute-silent(\"$SELF\" _set-mode \"$mode_file\" search)+unbind($navkeys)+enable-search+change-prompt(SEARCH )+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+transform-header(\"$SELF\" _mode-header \"$mode_file\" \"$view_file\")" \
@@ -9190,6 +9190,8 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
       if [ "$_wb_ccmd" = _continue-release-all ]; then _continue_release --all; else _continue_release "$@"; fi ;;
     # The picker's v key: a row with no task file gets a message, not the
     # session's own @task; a failure shows as a tmux message, as prefix+R does.
+    # The binding backgrounds it, so a binary rebuild or server start never
+    # freezes the picker.
     _review)
       shift
       if [ -n "${1:-}" ] && [ -f "$1" ]; then
