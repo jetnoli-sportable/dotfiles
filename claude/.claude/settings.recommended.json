@@ -1,7 +1,24 @@
 {
   "permissions": {
     "allow": [
-      "Read(/home/jetnoli/code/tasks/**)"
+      "Read(/home/jetnoli/code/tasks/**)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git add *)",
+      "Bash(git push --force-with-lease=*)",
+      "Bash(mkdir *)",
+      "Bash(wb append *)",
+      "Bash(wb now *)",
+      "Bash(wb set *)",
+      "Bash(wb status *)",
+      "Bash(wb followup-done *)",
+      "Bash(~/.config/scripts/tmux/wb.sh append *)",
+      "Bash(~/.config/scripts/tmux/wb.sh now *)",
+      "Bash(~/.config/scripts/tmux/wb.sh set *)",
+      "Bash(~/.config/scripts/tmux/wb.sh status *)",
+      "Bash(~/.config/scripts/tmux/wb.sh followup-done *)"
     ],
     "deny": [
       "Bash(terraform apply *)",

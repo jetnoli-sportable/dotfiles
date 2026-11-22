@@ -622,11 +622,30 @@ check_segment() {
       esac
       ;;
     git)
-      local a r push=0 force=0 hitdef=0 unknown=0 after=()
+      local a r lease gitsub="" push=0 force=0 hitdef=0 unknown=0 runs=0 after=()
+      # diff, log and show are allowed without a prompt, but --output=<file> makes them write any file
+      for a in "$@"; do
+        if [ -z "$gitsub" ]; then
+          case "$a" in diff|log|show|whatchanged|format-patch) gitsub="$a" ;; [!-]*) gitsub=- ;; esac
+          continue
+        fi
+        case "$a" in
+          --output|--output=*) flag ask "git $gitsub --output writes its output to a file, which may be anywhere"; break ;;
+        esac
+      done
       for a in "$@"; do
         if [ $push = 0 ]; then [ "$a" = push ] && push=1; continue; fi
         case "$a" in
-          --force|--force=*|--force-with-lease|--force-with-lease=*) force=1 ;;
+          --force-with-lease=*)
+            force=1
+            # --force-with-lease=<ref>[:<expect>] names the branch it rewrites
+            lease="${a#--force-with-lease=}"; lease="${lease%%:*}"
+            lease="${lease#refs/heads/}"; lease="${lease#heads/}"
+            case "$lease" in development|dev|main|master) hitdef=1 ;; esac
+            ;;
+          --force|--force=*|--force-with-lease) force=1 ;;
+          # the remote end's program: git runs it through a shell for a local-path remote
+          --receive-pack|--receive-pack=*|--exec|--exec=*) runs=1 ;;
           --*) ;;
           -*) [[ "$a" =~ ^-[A-Za-z]*f ]] && force=1 ;;
           *) after+=("$a") ;;
@@ -635,12 +654,14 @@ check_segment() {
       if [ $push = 1 ]; then
         for r in "${after[@]:1}"; do
           [[ "$r" == +* ]] && force=1
-          r="${r#+}"; r="${r##*:}"; r="${r#refs/heads/}"
+          r="${r#+}"; r="${r##*:}"; r="${r#refs/heads/}"; r="${r#heads/}"
           case "$r" in development|dev|main|master) hitdef=1 ;; esac
-          # HEAD, @, $BRANCH and $( ) all name a branch only known when it runs
-          case "$r" in HEAD|@|*'$'*|*"$SUBST"*) unknown=1 ;; esac
+          # HEAD, @, $BRANCH, $( ) and a refspec glob all name branches only known when it runs
+          case "$r" in HEAD|@|*'$'*|*"$SUBST"*|*'*'*) unknown=1 ;; esac
         done
-        if [ $force = 1 ] && [ $hitdef = 1 ]; then
+        if [ $runs = 1 ]; then
+          flag ask "git push --receive-pack/--exec runs an arbitrary command"
+        elif [ $force = 1 ] && [ $hitdef = 1 ]; then
           flag ask "force-push to a default branch rewrites shared history"
         elif [ $force = 1 ] && [ $unknown = 1 ]; then
           flag ask "force-push to a branch only known when it runs (HEAD, a variable or \$( )), which may be a default branch"

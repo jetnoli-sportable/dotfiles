@@ -58,17 +58,24 @@ paths/vocabulary in the invocation prompt instead.
 
 ## Recommended settings (not auto-applied)
 
-- `.claude/settings.recommended.json` — two independent things worth
+- `.claude/settings.recommended.json` — independent pieces worth
   merging separately:
-  - a `permissions.allow` rule that pre-authorizes reads under
+  - a narrow `permissions.allow` list. A matching rule skips both the prompt
+    and auto mode's classifier, so it holds only everyday commands that
+    nothing guards: read-only `git` (`status`, `diff`, `log`, `show`),
+    `git add`, `mkdir`, `git push --force-with-lease=…`, and the locked `wb`
+    store verbs (`append`, `now`, `set`, `status`, `followup-done`, typed as
+    `wb …` or `~/.config/scripts/tmux/wb.sh …`). A PreToolUse hook's "ask"
+    still prompts when an allow rule matches (checked live, 22 Nov 2026), so
+    `risky-command-guard.sh` still asks on the risky forms these rules let
+    through: a lease force-push to a default branch, `git push
+    --receive-pack`/`--exec` (they run a command), and `git diff|log|show
+    --output` (it writes a file).
+    `scripts/.config/scripts/tmux/tests/settings-allow-rules.test.sh` keeps
+    the list narrow. The first rule pre-authorizes reads under
     `~/code/tasks/`, so spawned agents (`/handoff`, `wb new --agent`) never
-    hit the "Do you want to proceed?" read-outside-cwd prompt for that path
-    (`docs/archive/roadmap-handoff.md`, "Dry-run findings", finding 4). Its exact
-    `Read(...)` glob syntax was pattern-matched against other
-    `permissions.allow` rules already on this machine (not verified against
-    the installed Claude Code version's own docs) — smoke-test after
-    merging: add it, start a fresh session, confirm the prompt no longer
-    fires for a `~/code/tasks/` read.
+    hit the read-outside-cwd prompt for that path
+    (`docs/archive/roadmap-handoff.md`, "Dry-run findings", finding 4).
   - a `hooks.PreToolUse` block wiring every `Bash`/`Edit`/`Write`/`MultiEdit`
     tool call through `tasks-git-hooks/pretooluse-guard.sh`, which asks
     before a command looks like it would rewind history inside

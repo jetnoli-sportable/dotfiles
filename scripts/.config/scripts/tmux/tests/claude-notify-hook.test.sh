@@ -14,6 +14,7 @@ set -uo pipefail
 
 SCRIPT="${NOTIFY_HOOK:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/claude-notify-hook.sh}"
 ROOT="$(mktemp -d -t claude-notify-hook.XXXXXX)"
+export PERMISSION_PROMPT_LOG="$ROOT/permission-prompts.tsv"   # never the real log
 REAL_TMUX="$(command -v tmux)"
 SOCK="cnh-test-$$"
 SOCK_FILE="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$SOCK"   # kill-server leaves it behind
@@ -182,5 +183,34 @@ assert_eq "SessionStart cleanup clears its own pane's turn" "" "$(opt @claude_tu
 assert_eq "SessionStart cleanup leaves another pane's turn" 1 "$("$REALBIN/tmux" show -pv -t "$PANE2" @claude_turn)"
 assert_eq "SessionStart cleanup leaves another pane's agent marker" 1 "$([ -n "$("$REALBIN/tmux" show -pv -t "$PANE2" @claude_agent_b1)" ] && echo 1)"
 assert_eq "SessionStart cleanup leaves another pane's working flag" 1 "$("$REALBIN/tmux" show -pv -t "$PANE2" @claude_working)"
+
+# --- Permission-prompt log ----------------------------------------------------
+# One line per permission prompt, naming the tool from the transcript's last
+# tool_use, with or without tmux; other notifications are not logged.
+TRANSCRIPT="$ROOT/transcript.jsonl"
+{
+  echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/x"}}]}}'
+  echo '{"type":"user","message":{"content":"not a list"}}'
+  # shellcheck disable=SC2016 # a literal $S, as an agent would type it
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"},{"type":"tool_use","name":"Bash","input":{"command":"rm -rf \"$S\"/old\n\tsecond line"}}]}}'
+  echo '{"truncated'
+} >"$TRANSCRIPT"
+notify() { # <json> -- the needs-input verb with no tmux at all
+  printf '%s' "$1" | env -u TMUX_PANE -u TMUX bash "$SCRIPT" needs-input
+}
+: >"$PERMISSION_PROMPT_LOG"
+notify "{\"session_id\":\"sid-9\",\"transcript_path\":\"$TRANSCRIPT\",\"notification_type\":\"permission_prompt\",\"message\":\"Claude needs your permission to use Bash\"}"
+notify '{"session_id":"sid-9","notification_type":"idle_prompt","message":"Claude is waiting for your input"}'
+notify '{"session_id":"sid-9","notification_type":"elicitation_dialog","message":"needs permission-free input"}'
+notify '{"session_id":"sid-8","message":"Claude needs your permission to use Edit"}'
+assert_eq "only the two permission notifications are logged" 2 "$(wc -l <"$PERMISSION_PROMPT_LOG")"
+IFS=$'\t' read -r when sid tool msg <"$PERMISSION_PROMPT_LOG"
+assert_eq "log line has a timestamp" 1 "$([[ "$when" =~ ^2[0-9]{3}-[0-9]{2}-[0-9]{2}T ]] && echo 1)"
+assert_eq "log line has the session id" sid-9 "$sid"
+# shellcheck disable=SC2016
+assert_eq "log line names the last tool_use, on one line" 'Bash rm -rf "$S"/old second line' "$tool"
+assert_eq "log line keeps the message" "Claude needs your permission to use Bash" "$msg"
+assert_eq "no transcript: tool left empty, line still written" $'sid-8\t\tClaude needs your permission to use Edit' \
+  "$(sed -n 2p "$PERMISSION_PROMPT_LOG" | cut -f2-)"
 
 [ "$fail" = 0 ] && echo "ALL PASSED" || { echo "FAILED"; exit 1; }

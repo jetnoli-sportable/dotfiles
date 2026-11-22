@@ -337,7 +337,7 @@ ask_if_contended() {
     who="$(other_live_owner "$task_file")"
     if [ -n "$who" ]; then
       emit_decision "ask" \
-        "$tool is writing $target, which belongs to task $task -- and tmux session '$who' is working on that task right now. Check with that session first so neither of you overwrites the other's changes."
+        "$tool is writing $target, which belongs to task $task -- and tmux session '$who' is working on that task right now. Check with that session first so neither of you overwrites the other's changes. To add to the task without this prompt, use wb append, wb now or wb followup-done: they take the task's lock and work while another session owns the task."
       return 0
     fi
     if holder="$(lock_holder "$task_file")"; then

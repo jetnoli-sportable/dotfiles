@@ -47,9 +47,6 @@ set -uo pipefail
 DONE_MIN_SECS=30   # only flag a finished turn as "done" if it ran at least this long
 AGENT_TTL_SECS=7200  # a subagent marker older than this is treated as a missed SubagentStop
 
-[ -n "${TMUX_PANE:-}" ] || exit 0
-P="$TMUX_PANE"
-
 # Hooks receive JSON on stdin. Guarded so a manual, stdin-less invocation
 # can't hang on the read.
 input=""
@@ -64,6 +61,43 @@ json_field() {
       | head -n1 | sed 's/.*"\([^"]*\)"$/\1/'
   fi
 }
+
+# log_permission_prompt — on a permission prompt, append one tab-separated
+# line to PERMISSION_PROMPT_LOG: local time, session id, the asked-about tool
+# and a short form of its input (read from the transcript's last tool_use, as
+# the notification names neither), and the notification's message. Counting
+# these lines is the only record of how often Jet is asked: an approved prompt
+# leaves no mark in the transcript. Other notifications (idle, questions) are
+# not logged. Runs with or without tmux.
+PERMISSION_PROMPT_LOG="${PERMISSION_PROMPT_LOG:-${XDG_STATE_HOME:-$HOME/.local/state}/claude/permission-prompts.tsv}"
+log_permission_prompt() {
+  command -v jq >/dev/null 2>&1 || return 0
+  local kind msg transcript tool=""
+  kind="$(json_field notification_type)"
+  msg="$(json_field message)"
+  case "$kind" in
+    permission_prompt) ;;
+    "") case "$msg" in *permission*) ;; *) return 0 ;; esac ;;
+    *) return 0 ;;
+  esac
+  transcript="$(json_field transcript_path)"
+  if [ -f "$transcript" ]; then
+    tool="$(tail -n 50 "$transcript" 2>/dev/null | jq -Rrs '
+      [split("\n")[] | fromjson? | .message.content? | arrays | .[]
+        | select(type == "object" and .type == "tool_use")] | last // empty
+      | .name + " " + ((.input.command // .input.file_path // .input.skill
+                        // (.input | tostring)) | tostring)' 2>/dev/null || true)"
+  fi
+  mkdir -p "$(dirname "$PERMISSION_PROMPT_LOG")" 2>/dev/null || return 0
+  printf '%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$(json_field session_id)" \
+    "$(printf '%s' "$tool" | tr -s '\t\n\r ' ' ' | cut -c1-300)" \
+    "$(printf '%s' "$msg" | tr -s '\t\n\r ' ' ')" >>"$PERMISSION_PROMPT_LOG" 2>/dev/null || true
+}
+
+[ "${1:-}" = needs-input ] && log_permission_prompt
+
+[ -n "${TMUX_PANE:-}" ] || exit 0
+P="$TMUX_PANE"
 
 # agent_opt — this hook's subagent marker name, or empty when the input carries
 # no usable agent_id. Ids are hex today; anything else is stripped so the name

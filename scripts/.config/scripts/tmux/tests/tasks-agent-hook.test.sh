@@ -390,10 +390,12 @@ assert_eq "wb-locks.sh missing: exactly one stderr line" "1" "$(printf '%s\n' "$
 
 set_sessions "other foo.md"
 run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
-if printf '%s' "$OUT" | grep -q 'wb append'; then
-  echo "FAIL - ask reason still tells the agent to use wb append"; fail=1
+# Shown only under contention (PR #130 dropped the hint when every write
+# asked); it names the locked verbs that write without asking (22 Nov 2026).
+if printf '%s' "$OUT" | grep -q 'use wb append, wb now or wb followup-done'; then
+  echo "ok   - contention ask names the wb verbs that write without a prompt"
 else
-  echo "ok   - ask reason no longer mentions wb append"
+  echo "FAIL - contention ask does not name the wb verbs"; fail=1
 fi
 
 run_guard "$(edit_json Edit "$FIXTURE_HOME/code/other-repo/foo.md")"
