@@ -95,10 +95,11 @@ wbrh_status() {
   printf '%s\n' "$2" >"$d/status.tmp.$$" && mv -f "$d/status.tmp.$$" "$d/status"
 }
 
-# wbrh_claim <stem> <route> — claim every pending item of the task by rename and
-# mark each delivered under <route>. Sets WBRH_POINTER (one instruction naming
-# every record) and WBRH_CLAIMED (the claimed ids); false when nothing was
-# claimed, because nothing was pending or another route won every rename.
+# wbrh_claim <stem> <route> — claim every pending item of the task by rename.
+# Sets WBRH_POINTER (one instruction naming every record), WBRH_CLAIMED (the
+# claimed ids) and WBRH_ROUTE (<route>, for
+# wbrh_mark_delivered); false when nothing was claimed, because nothing was
+# pending or another route won every rename.
 # An item whose record path is empty or holds a control character is left alone.
 wbrh_claim() {
   local stem="$1" route="$2" q="$WBRH_Q/$1/queue" f id rec

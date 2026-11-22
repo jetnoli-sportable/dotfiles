@@ -30,6 +30,9 @@ mk_task() { # <stem> <worktree-field>
 mk_task dotfiles--with-wt .worktrees/with-wt
 mk_task dotfiles--no-field ""
 mk_task dotfiles--gone-dir .worktrees/not-on-disk
+mk_task dotfiles--climbs .worktrees/../../x
+mk_task dotfiles--absolute "$CODE_DIR/dotfiles/.worktrees/with-wt"
+mkdir -p "$CODE_DIR/x"
 
 BIN="$FIXTURE/wb-store"; printf 'fake wb-store build\n' > "$BIN"
 BUILD_ID="$(sha256sum "$BIN" | cut -c1-12)"
@@ -106,7 +109,7 @@ assert "recorded the server's pid" '^[0-9]+$' "$(cat "$PIDFILE" 2>/dev/null)"
 assert "logged under wb's state directory" "wb-store review: http://127.0.0.1:8777/" "$(cat "$XDG_STATE_HOME/wb/review-server.log")"
 
 echo "# a task without a worktree: one-line refusal, nothing opened or started"
-for t in dotfiles--no-field dotfiles--gone-dir; do
+for t in dotfiles--no-field dotfiles--gone-dir dotfiles--climbs dotfiles--absolute; do
   reset
   out=$(cmd_review "$t" 2>&1); rc=$?
   assert_eq "$t: exit 1" 1 "$rc"
