@@ -161,18 +161,21 @@ wbrh_unclaim() {
   for id in "${WBRH_CLAIMED[@]}"; do mv -f "$q/claimed/$id.json" "$q/pending/$id.json" 2>/dev/null; done
 }
 
-# wbrh_continue_armed — this pane has an armed wb continue request (a plain read
-# of continue/*/request), so the restart's session-start must claim instead.
-wbrh_continue_armed() {
-  local f line pane=0 armed=0
+# wbrh_continue_pending — this pane has a wb continue request that has not yet
+# respawned it (a plain read of continue/*/request), so the restart's
+# session-start must claim instead. wb continue's own Stop hook runs in parallel
+# with this one and moves the request armed -> claimed -> restarting within the
+# same turn end, so all three states hold the review back.
+wbrh_continue_pending() {
+  local f line pane=0 pending=0
   for f in "$WBRH_STATE"/continue/*/request; do
     [ -f "$f" ] || continue
-    pane=0 armed=0
+    pane=0 pending=0
     while IFS= read -r line || [ -n "$line" ]; do
       [[ "$line" == "pane=$TMUX_PANE" ]] && pane=1
-      [[ "$line" == "state=armed" ]] && armed=1
+      case "$line" in state=armed | state=claimed | state=restarting) pending=1 ;; esac
     done <"$f"
-    [ "$pane" = 1 ] && [ "$armed" = 1 ] && return 0
+    [ "$pane" = 1 ] && [ "$pending" = 1 ] && return 0
   done
   return 1
 }
@@ -195,7 +198,7 @@ wbrh_hook() {
   rm -f "$WBRH_Q/$stem/queue/inflight"
   wbrh_has_pending "$stem" || return 0
   if [ "$WBRH_VERB" = hook-stop ]; then
-    wbrh_continue_armed && return 0
+    wbrh_continue_pending && return 0
     wbrh_claim "$stem" turn-end || return 0
     : >"$WBRH_Q/$stem/queue/inflight"
     jq -n --arg r "$WBRH_POINTER" '{decision: "block", reason: $r}'
@@ -299,6 +302,8 @@ wbrh_deliver() {
     wbrh_status "$stem" "waiting for the turn to end"
     return 0
   fi
+  # settle can wait seconds: the pane may have entered copy mode meanwhile.
+  mode="$(tmux display-message -p -t "$pane" '#{pane_in_mode}' 2>/dev/null)"
   if [ "$mode" = 1 ]; then
     wbrh_status "$stem" "the pane is in copy mode"
     return 0

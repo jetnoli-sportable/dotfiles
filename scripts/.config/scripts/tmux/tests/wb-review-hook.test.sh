@@ -32,6 +32,13 @@ CALLS="$FIX/calls.log"
 cat >"$FIX/bin/tmux" <<EOF
 #!/usr/bin/env bash
 echo "\$*" >> "$CALLS"
+# Fault injection: send-keys fails while failsend exists; once mode2 exists the
+# second pane_in_mode read reports copy mode.
+[ "\$1" = send-keys ] && [ -e "$FIX/failsend" ] && exit 1
+if [[ "\$*" == *pane_in_mode* ]] && [ -e "$FIX/mode2" ]; then
+  echo x >> "$FIX/mode2"
+  [ "\$(wc -l < "$FIX/mode2")" -ge 2 ] && { echo 1; exit 0; }
+fi
 exec "$REAL_TMUX" -u -L "$SOCK" -f /dev/null "\$@"
 EOF
 cat >"$FIX/bin/jq" <<EOF
@@ -202,6 +209,31 @@ assert_eq "copy mode: nothing typed" 0 "$(sends)"
 assert_eq "copy mode: status says why" "the pane is in copy mode" "$(status_of tk-a)"
 endsessions
 
+# copy mode entered during the settle wait: only the re-read sees it
+reset
+newpane s1 tk-a prompt
+: >"$FIX/mode2"
+item tk-a r-1 "$REC_A"
+deliver tk-a
+rm -f "$FIX/mode2"
+assert_eq "copy mode after settle: nothing typed" 0 "$(sends)"
+assert_eq "copy mode after settle: item stays pending" 1 "$(pending_n tk-a)"
+assert_eq "copy mode after settle: status says why" "the pane is in copy mode" "$(status_of tk-a)"
+endsessions
+
+# --- send-keys failure: the claim is undone ---------------------------------------------------
+reset
+newpane s1 tk-a prompt
+touch "$FIX/failsend"
+item tk-a r-1 "$REC_A"
+deliver tk-a
+rm -f "$FIX/failsend"
+assert_eq "send-keys fails: item back in pending" 1 "$(pending_n tk-a)"
+assert_eq "send-keys fails: claimed and delivered hold nothing" 0 \
+  "$(find "$RQ/tk-a/queue/claimed" "$RQ/tk-a/queue/delivered" -name '*.json' | wc -l)"
+assert_eq "send-keys fails: status says so" "typing into the pane failed" "$(status_of tk-a)"
+endsessions
+
 # --- AE3: no Claude running -> pending; the SessionStart hook delivers -------------------------
 reset
 newpane s1 tk-a shell
@@ -234,6 +266,21 @@ assert_eq "armed continue: item stays pending" 1 "$(pending_n tk-a)"
 out="$(hook hook-session-start "$P1")"
 assert_eq "armed continue: the restart's session start claims it" "$PTR_A" "$(jq -r .hookSpecificOutput.additionalContext <<<"$out")"
 endsessions
+
+# --- wb continue already claimed or restarting the pane: still held back ------------------------
+for st in claimed restarting; do
+  reset
+  newpane s1 tk-a prompt
+  P1="$PANE"
+  mkdir -p "$STATE/continue/tk-a"
+  printf 'state=%s\npane=%s\ntask_file=%s\n' "$st" "$P1" "$FIX/tasks/tk-a.md" >"$STATE/continue/tk-a/request"
+  item tk-a r-1 "$REC_A"
+  assert_eq "$st continue: hook-stop prints nothing" "" "$(hook hook-stop "$P1")"
+  assert_eq "$st continue: item stays pending" 1 "$(pending_n tk-a)"
+  out="$(hook hook-session-start "$P1")"
+  assert_eq "$st continue: the restart's session start claims it" "$PTR_A" "$(jq -r .hookSpecificOutput.additionalContext <<<"$out")"
+  endsessions
+done
 
 # --- two pending reviews go together -------------------------------------------------------------
 reset
