@@ -169,6 +169,11 @@
 #   wb notes [<task>]                print dossiers/<task>/notes.md (the file may not exist; wb
 #                                    never creates it), tmux-free; with no <task>, the current
 #                                    tmux session's @task (an error outside tmux)
+#   wb review [--no-open] [--task] [<task>]
+#                                    open <task>'s local diff-review page (wb-store review) in an
+#                                    app window, starting its server when none of this build runs;
+#                                    refuses a task with no worktree on disk. With no <task>, the
+#                                    current tmux session's @task
 #   wb page [--no-open] [--task|--family] [<task>] | wb page [--no-open] --index
 #                                    open <task>'s page from wb-store's page server: its family
 #                                    page when it has children, else its task page (--task or
@@ -7880,12 +7885,13 @@ wb_status_line() {
   if [ "$ctx" = search ]; then
     hint='SEARCH: type to filter (includes paused) · esc back to normal'
   else
-    # Fourteen keys in 120 columns leaves one space between pairs, so each key
-    # is bold to keep the pairs apart (the text without the codes is 119). g/G,
-    # h and the enter key still work; only the hint dropped them.
+    # Fifteen keys in 120 columns leaves one space between pairs, so each key
+    # is bold to keep the pairs apart (the text without the codes is 118). g/G,
+    # h and enter are left out, and j/k and ctrl-r carry no words, so the hint
+    # fits 120 columns.
     local b=$'\033[1m' n0=$'\033[22m'
-    hint="${b}j/k${n0} move ${b}l${n0} open ${b}q${n0} quit ${b}u${n0} needs ${b}n${n0} new ${b}p${n0} down"
-    hint+=" ${b}r${n0} rename ${b}b${n0} break ${b}c${n0} continue ${b}C${n0} all ${b}ctrl-x${n0} done ${b}ctrl-r${n0} sync ${b}tab${n0} view ${b}/${n0} search"
+    hint="${b}j/k${n0} ${b}l${n0} open ${b}q${n0} quit ${b}u${n0} needs ${b}n${n0} new ${b}p${n0} down"
+    hint+=" ${b}r${n0} rename ${b}b${n0} break ${b}c${n0} continue ${b}C${n0} all ${b}v${n0} review ${b}ctrl-x${n0} done ${b}ctrl-r${n0} ${b}tab${n0} view ${b}/${n0} search"
   fi
   if [ "$view" = dormant ]; then
     label=DORMANT
@@ -8243,26 +8249,28 @@ _wb_page_build_id() {
   printf '%s\n' "${sum:0:12}"
 }
 
-# _wb_page_healthz_is <body> <build-id> — whether a /healthz body is
-# wb-store's with this build id. Each field is matched on its own, with
+# _wb_page_healthz_is <body> <build-id> [<app>] — whether a /healthz body is
+# <app>'s (default wb-store; the review server is wb-store-review) with this
+# build id. Each field is matched on its own, with
 # whitespace dropped, so the check doesn't depend on the JSON's field order
 # or spacing.
 _wb_page_healthz_is() {
-  local flat
+  local flat app="${3:-wb-store}"
   flat="$(printf '%s' "$1" | tr -d ' \t\r\n')"
-  case "$flat" in *'"app":"wb-store"'*) ;; *) return 1 ;; esac
+  case "$flat" in *'"app":"'"$app"'"'*) ;; *) return 1 ;; esac
   case "$flat" in *'"build_id":"'"$2"'"'*) return 0 ;; esac
   return 1
 }
 
-# _wb_page_find_server <build-id> — the first of the ten ports from
-# WB_PAGE_PORT whose /healthz says it is wb-store with this build id;
+# _wb_page_find_server <build-id> [<app> [<first-port>]] — the first of the
+# ten ports from <first-port> (default WB_PAGE_PORT) whose /healthz says it is
+# <app> (default wb-store) with this build id;
 # returns 1 when none is.
 _wb_page_find_server() {
-  local id="$1" port body
-  for port in $(seq "$WB_PAGE_PORT" $((WB_PAGE_PORT + 9))); do
+  local id="$1" app="${2:-wb-store}" first="${3:-$WB_PAGE_PORT}" port body
+  for port in $(seq "$first" $((first + 9))); do
     body="$(curl -s -m 1 "http://127.0.0.1:$port/healthz" 2>/dev/null)" || continue
-    if _wb_page_healthz_is "$body" "$id"; then
+    if _wb_page_healthz_is "$body" "$id" "$app"; then
       printf '%s\n' "$port"
       return 0
     fi
@@ -8288,6 +8296,29 @@ _wb_page_stop_old() {
   esac
 }
 
+# _wb_resolve_task_arg <task-ref> <cmdname> <usage> — print the task file for
+# `wb page` and `wb review`: the <task-ref> (no tmux needed), or with an empty
+# one the current session's @task. Fails with <cmdname>'s own message when not
+# in tmux or the session is not a wb task session.
+_wb_resolve_task_arg() {
+  local ref="$1" cmd="$2" usage="$3" session file
+  if [ -n "$ref" ]; then
+    _wb_append_resolve_task "$ref" "$cmd"
+    return
+  fi
+  if [ -z "${TMUX:-}" ]; then
+    echo "$cmd: not inside tmux — pass a <task-ref>" >&2
+    echo "$usage" >&2
+    return 1
+  fi
+  session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+  if [ -z "$session" ] || ! file="$(wb_session_task_file "$session")" || [ -z "$file" ]; then
+    echo "$cmd: ${session:-this session} has no @task/@wb_repo — not a wb task session" >&2
+    return 1
+  fi
+  printf '%s\n' "$file"
+}
+
 # _wb_page_detach <cmd> [args...] — run a command in the background in its
 # own session where setsid exists (Linux), else under nohup (macOS has no
 # setsid), so a closing pane or Ctrl-C in this shell doesn't reach it.
@@ -8299,27 +8330,29 @@ _wb_page_detach() {
   fi
 }
 
-# _wb_page_start <stem> <log> <pidfile> — stop the older server recorded in
-# <pidfile>, start `wb-store serve --no-open --port WB_PAGE_PORT [<stem>]`
-# (an empty <stem> starts it on the families index)
+# _wb_page_start <stem> <log> <pidfile> [<verb> <port> <label>] — stop the older
+# server recorded in <pidfile>, start `wb-store <verb> --no-open --port <port>
+# [<stem>]` (an empty <stem> starts it on the families index; the verb, port
+# and label default to the page server's: serve, WB_PAGE_PORT, "wb page")
 # detached (its own session, so closing this shell leaves it running),
 # record its pid in <pidfile>, and print the port it bound, read from its
 # first line in <log>. Returns 1, naming the log and showing its last lines,
 # when the server exits without a URL line or none shows within about 10
 # seconds. The pid is the server's own: setsid, nohup and the shim all exec.
 _wb_page_start() {
-  local stem="$1" log="$2" pidfile="$3" i line pid alive=1
+  local stem="$1" log="$2" pidfile="$3" verb="${4:-serve}" port="${5:-$WB_PAGE_PORT}" label="${6:-wb page}"
+  local i line pid alive=1
   mkdir -p "$(dirname "$log")" "$(dirname "$pidfile")"
   _wb_page_stop_old "$pidfile"
   : > "$log"
-  _wb_page_detach "$WB_STORE_SHIM" serve --no-open --port "$WB_PAGE_PORT" ${stem:+"$stem"} >>"$log" 2>&1 </dev/null
+  _wb_page_detach "$WB_STORE_SHIM" "$verb" --no-open --port "$port" ${stem:+"$stem"} >>"$log" 2>&1 </dev/null
   pid=$!
   printf '%s\n' "$pid" > "$pidfile"
   for i in $(seq 1 50); do
     # Liveness is read before the log, so a server that printed its URL and
     # then exited is still found by this pass's grep.
     kill -0 "$pid" 2>/dev/null || alive=0
-    line="$(grep -m1 -o 'wb-store serve: http://127\.0\.0\.1:[0-9]*/' "$log" 2>/dev/null || true)"
+    line="$(grep -m1 -o "wb-store $verb: http://127\.0\.0\.1:[0-9]*/" "$log" 2>/dev/null || true)"
     if [ -n "$line" ]; then
       line="${line%/}"
       printf '%s\n' "${line##*:}"
@@ -8330,7 +8363,7 @@ _wb_page_start() {
   done
   # A hung server stays recorded, so the next `wb page` stops it.
   [ "$alive" = 1 ] || rm -f "$pidfile"
-  echo "wb page: the page server printed no URL; see $log" >&2
+  echo "$label: the ${label#wb } server printed no URL; see $log" >&2
   tail -n 5 "$log" | sed 's/^/  /' >&2
   return 1
 }
@@ -8385,20 +8418,8 @@ cmd_page() {
   local file stem=""
   if [ "$view" = index ]; then
     :
-  elif [ -n "${1:-}" ]; then
-    file="$(_wb_append_resolve_task "$1" "wb page")" || return 1
   else
-    if [ -z "${TMUX:-}" ]; then
-      echo "wb page: not inside tmux — pass a <task-ref>" >&2
-      echo "$usage" >&2
-      return 1
-    fi
-    local session
-    session="$(tmux display-message -p '#S' 2>/dev/null || true)"
-    if [ -z "$session" ] || ! file="$(wb_session_task_file "$session")" || [ -z "$file" ]; then
-      echo "wb page: ${session:-this session} has no @task/@wb_repo — not a wb task session" >&2
-      return 1
-    fi
+    file="$(_wb_resolve_task_arg "${1:-}" "wb page" "$usage")" || return 1
   fi
   [ "$view" = index ] || stem="$(basename "$file" .md)"
 
@@ -8437,6 +8458,75 @@ cmd_page() {
   fi
   printf '%s\n' "$url"
   [ "$no_open" = 1 ] || _wb_page_open "$url"
+}
+
+# ---------------------------------------------------------------------------
+# wb review — open a task's review page from `wb-store review`. Same
+# probe-or-start flow as wb page, on its own ports and files.
+# ---------------------------------------------------------------------------
+
+# The first of the ten ports `wb-store review` binds from, and probes cover.
+WB_REVIEW_PORT="${WB_REVIEW_PORT:-8776}"
+
+# _wb_review_open <url> — an app window (no tabs or address bar) in Chromium
+# when there is one, else the page server's opener order.
+_wb_review_open() {
+  local browser
+  for browser in chromium /snap/bin/chromium chromium-browser google-chrome; do
+    if command -v "$browser" >/dev/null; then
+      _wb_page_detach "$browser" --app="$1" >/dev/null 2>&1 </dev/null
+      return 0
+    fi
+  done
+  _wb_page_open "$1"
+}
+
+# cmd_review [--no-open] [--task] [<task-ref>] — print and open a task's
+# review page, starting `wb-store review` when no server of the current build
+# answers. A task with no worktree on disk, or an unsafe worktree: value, is refused. Resolution matches
+# cmd_page: a <task-ref> needs no tmux, none (or an empty one, as the
+# prefix+R bind passes for a session without @task) means the session's @task.
+# --task is accepted for the bind's sake and changes nothing.
+cmd_review() {
+  local usage="usage: wb review [--no-open] [--task] [<task-ref>]"
+  local no_open=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --no-open) no_open=1 ;;
+      --task) ;;
+      -h|--help|-?*) echo "$usage" >&2; return 1 ;;
+      *) break ;;
+    esac
+    shift
+  done
+  if [ $# -gt 1 ]; then echo "$usage" >&2; return 1; fi
+  local file stem repo wt
+  file="$(_wb_resolve_task_arg "${1:-}" "wb review" "$usage")" || return 1
+  stem="$(basename "$file" .md)"
+  repo="$(wb_get_frontmatter "$file" repo)"
+  wt="$(wb_get_frontmatter "$file" worktree)"
+  read -r repo <<< "$repo"
+  read -r wt <<< "$wt"
+  if [ -z "$repo" ] || [ -z "$wt" ] || ! _wb_safe_worktree_field "$wt" || [ ! -d "$(wb_repo_dir "$repo")/$wt" ]; then
+    echo "wb review: $stem has no worktree on disk — nothing to review" >&2
+    return 1
+  fi
+
+  if [ ! -x "$WB_STORE_SHIM" ]; then
+    echo "wb review: no wb-store shim at $WB_STORE_SHIM — run stow (cd ~/code/dotfiles && stow scripts)" >&2
+    return 1
+  fi
+  local bin id port
+  bin="$("$WB_STORE_SHIM" --bin-path)" || return 1
+  id="$(_wb_page_build_id "$bin")" || return 1
+  if ! port="$(_wb_page_find_server "$id" wb-store-review "$WB_REVIEW_PORT")"; then
+    local state="${XDG_STATE_HOME:-$HOME/.local/state}/wb" key
+    key="$(printf '%s' "$bin" | cksum | cut -d ' ' -f 1)"
+    port="$(_wb_page_start "$stem" "$state/review-server.log" "$state/review-server.$key.pid" review "$WB_REVIEW_PORT" "wb review")" || return 1
+  fi
+  local url="http://127.0.0.1:$port/t/$stem"
+  printf '%s\n' "$url"
+  [ "$no_open" = 1 ] || _wb_review_open "$url"
 }
 
 # ---------------------------------------------------------------------------
@@ -8926,7 +9016,7 @@ picker() {
   # unbound keys are inert; i or / enters SEARCH. `x` is gone with the old
   # interrupt key; `n` is new; `tab` is back, now toggling LIVE<->DORMANT
   # (not the old combined/sessions/agents cycle it used to drive).
-  local navkeys='j,k,g,G,q,i,r,b,p,n,u,c,C,/'
+  local navkeys='j,k,g,G,q,i,r,b,p,n,u,c,C,v,/'
 
   # Field 1 is the pre-rendered display string (see wb_format_for_display);
   # fields 2-14 are the real data, shown to fzf only as hidden/addressable
@@ -8961,6 +9051,7 @@ picker() {
         --bind "p:execute(\"$SELF\" _down {8})+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
         --bind "c:execute-silent(\"$SELF\" _continue-release {9})+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
         --bind "C:execute-silent(\"$SELF\" _continue-release-all)+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
+        --bind "v:execute-silent(\"$SELF\" _review {9} >/dev/null 2>&1 &)" \
         --bind "n:become(\"$SELF\" _new)" \
         --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7} {9})" \
         --bind "i:execute-silent(\"$SELF\" _set-mode \"$mode_file\" search)+unbind($navkeys)+enable-search+change-prompt(SEARCH )+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+transform-header(\"$SELF\" _mode-header \"$mode_file\" \"$view_file\")" \
@@ -9039,6 +9130,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     task-file)   shift; cmd_task_file "$@" ;;
     notes)       shift; cmd_notes "$@" ;;
     page)        shift; cmd_page "$@" ;;
+    review)      shift; cmd_review "$@" ;;
     jira-set)    shift; cmd_jira_set "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
@@ -9096,6 +9188,17 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
       # shellcheck source=wb-continue.sh
       source "$SCRIPT_DIR/wb-continue.sh"
       if [ "$_wb_ccmd" = _continue-release-all ]; then _continue_release --all; else _continue_release "$@"; fi ;;
+    # The picker's v key: a row with no task file gets a message, not the
+    # session's own @task; a failure shows as a tmux message, as prefix+R does.
+    # The binding backgrounds it, so a binary rebuild or server start never
+    # freezes the picker.
+    _review)
+      shift
+      if [ -n "${1:-}" ] && [ -f "$1" ]; then
+        _wb_rv_err="$(cmd_review --task "$1" 2>&1 >/dev/null)" || tmux display-message -d 6000 "$(printf '%s\n' "$_wb_rv_err" | head -n 1)" 2>/dev/null || true
+      else
+        tmux display-message -d 6000 "wb review: this row has no task file" 2>/dev/null || true
+      fi ;;
     _preview)    shift; _preview "$@" ;;
     _preview-label) shift; _preview_label "$@" ;;
     help|--help|-h) cmd_help ;;

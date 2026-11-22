@@ -965,7 +965,7 @@ assert "U5 picker: the load bind then runs _initial-pos" '\+transform\(\\"\$SELF
 assert "U5 picker: u:transform runs _next-needs" '"u:transform\(\\"\$SELF\\" _next-needs \\"\$mode_file\\" \\"\$view_file\\"\)"' "$picker_block"
 navkeys_line="$(printf '%s\n' "$picker_block" | /usr/bin/grep -F "local navkeys=")"
 assert "U5 picker: u is in the NORMAL key list (so SEARCH unbinds it)" "navkeys='[^']*,u,[^']*'" "$navkeys_line"
-assert "U5 picker: the other nav keys are still in the list" "navkeys='j,k,g,G,q,i,r,b,p,n,u,c,C,/'" "$navkeys_line"
+assert "U5 picker: the other nav keys are still in the list" "navkeys='j,k,g,G,q,i,r,b,p,n,u,c,C,v,/'" "$navkeys_line"
 focus_bind="$(printf '%s\n' "$picker_block" | /usr/bin/grep -F -- '"focus:')"
 assert "U5 picker: the focus bind keeps the preview label" 'focus:transform-preview-label\(.*_preview-label \{7\} \{9\}\)' "$focus_bind"
 assert "U5 picker: ... and chains the focus record (session {8}, target {7}, kind {10}) onto it, skipping dormant rows (no session)" \

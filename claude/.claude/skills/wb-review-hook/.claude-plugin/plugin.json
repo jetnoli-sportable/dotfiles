@@ -1,0 +1,7 @@
+{
+  "name": "wb-review-hook",
+  "description": "wb review hooks: a Stop hook hands a queued code review (sent from the wb review page) to Claude when its turn ends, and a SessionStart hook adds it to a fresh session's context. Hooks only; logic lives in ~/.config/scripts/tmux/wb-review-hook.sh.",
+  "author": {
+    "name": "jetnoli-sportable"
+  }
+}
