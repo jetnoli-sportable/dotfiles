@@ -36,6 +36,12 @@ turn of 30 seconds or more ends. Shorter turns light nothing, so quick replies
 don't nag. Focusing the pane clears the mark (a `pane-focus-in` hook): reaching
 the agent counts as seeing it.
 
+The same hook keeps a count of permission prompts. Each one appends a line to
+`~/.local/state/claude/permission-prompts.tsv` (time, session id, the tool and
+its command or file, the prompt's message), in or out of tmux. An approved
+prompt leaves no mark in the transcript, so this file is how prompts per week
+get counted; `wc -l` or `cut -f3 | sort | uniq -c` over a date range answers it.
+
 The count covers every pane in every tmux session, not just the one you're in.
 Use the wb picker (`prefix` + `a`) or `wb board` to find which ones.
 
