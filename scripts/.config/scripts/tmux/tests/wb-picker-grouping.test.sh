@@ -1082,7 +1082,7 @@ assert_eq "U6 preview: clean git dir says clean" "clean" "$(_preview "" "$PV_DIR
 assert "U6 preview: dirty git dir shows status" 'new\.txt' "$(_preview "" "$PV_DIR/repo" repo)"
 
 # --- pane: trailing blanks stripped, tailed to FZF_PREVIEW_LINES -------------
-wb_capture_pane() {
+tmux_capture_pane() {
   local i
   for i in $(seq 1 15); do printf 'line %s\n' "$i"; done
   for i in $(seq 1 20); do

@@ -111,6 +111,34 @@ assert_eq "new turn-start is the current tree" "$(git -C "$WT" rev-parse "$(ref 
 [ -e "$GD/wb-turn-open" ] && ok "second prompt reopens the turn" || bad "second prompt reopens the turn"
 hook stop ""
 
+# --- Esc during a review-block continuation --------------------------------------
+# The review hook's Stop block writes queue/inflight naming the pane and starts a
+# turn no prompt announces; an Esc then means no Stop clears it.
+inflight() { # inflight <pane> <age-seconds>
+  mkdir -p "$XDG_STATE_HOME/wb/review/tk/queue"
+  printf '%s %s\n' "$1" "$((EPOCHSECONDS - $2))" >"$XDG_STATE_HOME/wb/review/tk/queue/inflight"
+}
+hook prompt; idle
+echo "before the review" >"$WT/r1.go"
+hook stop "$(stop_in 'Built r1')"
+inflight "$TMUX_PANE" 5
+echo "review edit" >"$WT/r2.go"
+hook prompt; idle
+assert_eq "Esc during a review turn: the turn holds the review's edit" "r2.go " "$(turn_files)"
+assert_has "Esc during a review turn: marked interrupted" "wb turn (interrupted)" "$(git -C "$WT" log -1 --format=%B "$(ref turn)")"
+hook stop ""
+for case in "other pane:%9 5" "stale marker:$TMUX_PANE 7200"; do
+  hook prompt; idle; hook stop ""
+  T0="$(ref turn)"
+  read -r p age <<<"${case#*:}"
+  inflight "$p" "$age"
+  echo "jet's edit, ${case%%:*}" >"$WT/jet.md"
+  hook prompt; idle
+  assert_eq "inflight on ${case%%:*}: Jet's edit before the prompt is no turn" "$T0" "$(ref turn)"
+  hook stop ""
+done
+rm -rf "$XDG_STATE_HOME/wb/review"
+
 # --- untracked vs ignored --------------------------------------------------------
 hook prompt; idle
 echo u >"$WT/untracked.txt"; echo l >"$WT/debug.log"

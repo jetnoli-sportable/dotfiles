@@ -311,6 +311,17 @@ wbrh_held() {
   return 0
 }
 
+# wbrh_hold_clear <stem> — false, with the held status, while the task's reviews
+# are held; drops a hold that a newer send has answered.
+wbrh_hold_clear() {
+  if wbrh_held "$1"; then
+    wbrh_status "$1" "held: the session asked you something"
+    return 1
+  fi
+  [ -e "$WBRH_Q/$1/queue/held" ] && wbrh_unhold "$1"
+  return 0
+}
+
 # --- hook verbs --------------------------------------------------------------------
 
 wbrh_hook() {
@@ -360,7 +371,8 @@ wbrh_hook() {
 # his answer to the question. A prompt that opens with a marker of a turn nobody
 # typed (another session's message, a background or task notification, a system
 # note, the usage-limit reset; wb-store's autoMarkers, here as the raw prompt
-# text the way wb-capture.sh's hook_prompt_stamp sees it) is not.
+# text the way wb-capture.sh's hook_prompt_stamp sees it) is not, nor is the
+# review pointer `deliver` types.
 wbrh_prompt() {
   local stem q input prompt
   stem="$(wbrh_pane_stem)" || return 0
@@ -372,7 +384,8 @@ wbrh_prompt() {
   prompt="${prompt#"${prompt%%[![:space:]]*}"}"
   case "$prompt" in
     'Another Claude session sent a message:'* | '(message from another session)'* | '(background'* | \
-      '<task-notification'* | '<agent-message'* | '[SYSTEM'* | 'Your claude.ai usage limit has reset.'*) return 0 ;;
+      '<task-notification'* | '<agent-message'* | '[SYSTEM'* | 'Your claude.ai usage limit has reset.'* | \
+      'Jet sent a code review:'* | 'Jet sent '[0-9]*' code reviews:'*) return 0 ;;
   esac
   : >"$q/held.answered"
 }
@@ -421,11 +434,7 @@ wbrh_deliver() {
     return 3
   fi
   pane="$WBRH_PANE"
-  if wbrh_held "$stem"; then
-    wbrh_status "$stem" "held: the session asked you something"
-    return 0
-  fi
-  [ -e "$WBRH_Q/$stem/queue/held" ] && wbrh_unhold "$stem"
+  wbrh_hold_clear "$stem" || return 0
   if [ -e "$WBRH_Q/$stem/queue/inflight" ]; then
     if wbrh_inflight_live "$WBRH_Q/$stem/queue/inflight"; then
       wbrh_status "$stem" "a review hand-over is still being worked on"
@@ -454,6 +463,8 @@ wbrh_deliver() {
     fi
     return 0
   fi
+  # A turn that ended while settle waited may have held the review.
+  wbrh_hold_clear "$stem" || return 0
   wbrh_claim "$stem" prompt || return 0
   if tmux send-keys -t "$pane" -l -- "$WBRH_POINTER" && tmux send-keys -t "$pane" Enter; then
     wbrh_mark_delivered "$stem"

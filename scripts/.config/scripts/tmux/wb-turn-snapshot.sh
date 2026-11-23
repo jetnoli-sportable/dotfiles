@@ -22,10 +22,12 @@
 # written with write-tree; the real index and HEAD are never touched. The open-turn
 # marker <git-dir>/wb-turn-open is set by `prompt` and cleared by `stop`; a prompt
 # that finds it still set (an Esc interrupt gets no Stop) records that turn first,
-# marked interrupted. Both verbs hold <git-dir>/wb-turn.lock (flock; the detached
-# child inherits it, so a Stop waits for a running prompt), every git call has a
-# timeout, refs move with update-ref and the old value, and on any failure the refs
-# stay as they were.
+# marked interrupted. A review handed over by a Stop block starts a turn no prompt
+# announces, so a prompt that finds that hand-over still in flight on this pane
+# (wb-review-hook.sh's queue/inflight, cleared at the next Stop) does the same.
+# Both verbs hold <git-dir>/wb-turn.lock (flock; the detached child inherits it,
+# so a Stop waits for a running prompt), every git call has a timeout, refs move
+# with update-ref and the old value, and on any failure the refs stay as they were.
 #
 # Guards, in plain bash before any fork: the kill switch
 # ${XDG_STATE_HOME:-~/.local/state}/wb/disable-turn-snapshot,
@@ -115,11 +117,26 @@ wbts_move_start() {
   wbts_set "$REF_START" "$c"
 }
 
+# wbts_review_open — a review hand-over on this pane is still in flight: the
+# block's turn got no Stop. A marker older than wb-review-hook.sh's own limit
+# (WB_REVIEW_INFLIGHT_MAX_S) is stale, as there.
+wbts_review_open() {
+  local f pane ts
+  for f in "${XDG_STATE_HOME:-$HOME/.local/state}"/wb/review/*/queue/inflight; do
+    [ -e "$f" ] || continue
+    pane="" ts=""
+    read -r pane ts <"$f"
+    [ "$pane" = "$TMUX_PANE" ] && [[ "$ts" =~ ^[0-9]+$ ]] &&
+      ((EPOCHSECONDS - ts < ${WB_REVIEW_INFLIGHT_MAX_S:-1800})) && return 0
+  done
+  return 1
+}
+
 # wbts_run_prompt — the detached half of `prompt`; the lock is already held.
 wbts_run_prompt() {
   local tree
   tree="$(wbts_snapshot)" && [ -n "$tree" ] || return 0
-  if [ -e "$GD/wb-turn-open" ]; then
+  if [ -e "$GD/wb-turn-open" ] || wbts_review_open; then
     wbts_record "$tree" 1 || return 0
   else
     wbts_read_start || WBTS_START_TREE=""

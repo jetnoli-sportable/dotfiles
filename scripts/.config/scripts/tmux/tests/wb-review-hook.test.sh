@@ -35,6 +35,12 @@ echo "\$*" >> "$CALLS"
 # Fault injection: send-keys fails while failsend exists; once mode2 exists the
 # second pane_in_mode read reports copy mode.
 [ "\$1" = send-keys ] && [ -e "$FIX/failsend" ] && exit 1
+# holdonsettle: line 1 a path, the rest its content, written at settle's first
+# @claude_working read (a turn ending with a question while deliver settles).
+if [ "\$1" = show ] && [[ "\$*" == *@claude_working* ]] && [ -e "$FIX/holdonsettle" ]; then
+  tail -n +2 "$FIX/holdonsettle" >"\$(head -n 1 "$FIX/holdonsettle")"
+  rm -f "$FIX/holdonsettle"
+fi
 if [[ "\$*" == *pane_in_mode* ]] && [ -e "$FIX/mode2" ]; then
   echo x >> "$FIX/mode2"
   [ "\$(wc -l < "$FIX/mode2")" -ge 2 ] && { echo 1; exit 0; }
@@ -561,6 +567,28 @@ for ap in $'Another Claude session sent a message:\n<cross-session-message>hi' '
   endsessions
 done
 
+# the pointer deliver types is not Jet's answer
+reset
+newpane s1 tk-a prompt
+P1="$PANE"
+item tk-a r-1 "$REC_A"
+stopmsg "$P1" $'Q.\n**Needs you:** pick' >/dev/null
+promptin "$P1" "$PTR_A" >/dev/null
+promptin "$P1" "Jet sent 2 code reviews: read a, b, and address each comment." >/dev/null
+[ ! -e "$RQ/tk-a/queue/held.answered" ] && ok "a typed review pointer writes no held.answered" || bad "a typed review pointer writes no held.answered"
+endsessions
+
+# a turn that ends with a question while deliver settles: nothing typed
+reset
+newpane s1 tk-a prompt
+item tk-a r-1 "$REC_A"
+printf '%s\n%s\n%s\n' "$(held_f tk-a)" "$(date +%s)" "pick A or B" >"$FIX/holdonsettle"
+deliver tk-a
+assert_eq "held during settle: nothing typed, item pending" "0 1" "$(sends) $(pending_n tk-a)"
+assert_eq "held during settle: held status" "held: the session asked you something" "$(status_of tk-a)"
+rm -f "$FIX/holdonsettle"
+endsessions
+
 # no held file anywhere: exits before any fork
 reset
 newpane s1 tk-a prompt
@@ -642,6 +670,15 @@ for pair in Stop:hook-stop StopFailure:hook-stop-failure SessionStart:hook-sessi
   verb="$(WB_REVIEW_BIN="$SELF_DIR" HOME=/nonexistent bash -c 'eval "set -- $1"; printf %s "${2:-}"' _ "$cmd")"
   [ -x "$path" ] && ok "$ev: script exists and is executable" || bad "$ev: script exists and is executable" "$path"
   assert_eq "$ev: verb" "$want" "$verb"
+done
+TS='[.hooks[][].hooks[] | select(.command | test("wb-turn-snapshot.sh"))]'
+assert_eq "turn snapshot: wired on UserPromptSubmit, Stop and StopFailure" \
+  "UserPromptSubmit prompt 5,Stop stop 10,StopFailure stop 10" \
+  "$(jq -r '[.hooks | to_entries[] | .key as $ev | .value[].hooks[] | select(.command | test("wb-turn-snapshot.sh")) | "\($ev) \(.command | split(" ") | last) \(.timeout)"] | join(",")' "$HOOKS" 2>/dev/null)"
+for cmd in $(jq -r "${TS}[].command | @base64" "$HOOKS" 2>/dev/null); do
+  cmd="$(base64 -d <<<"$cmd")"
+  path="$(WB_REVIEW_BIN="$SELF_DIR" HOME=/nonexistent bash -c 'eval "set -- $1"; printf %s "$1"' _ "$cmd")"
+  [ -x "$path" ] && ok "turn snapshot: script exists and is executable" || bad "turn snapshot: script exists and is executable" "$path"
 done
 assert_eq "no wb-review-hook hook in settings.recommended.json" 0 \
   "$(jq '[.. | strings | select(test("wb-review-hook"))] | length' "$REPO/claude/.claude/settings.recommended.json")"
