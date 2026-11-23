@@ -7992,10 +7992,6 @@ _initial_pos() {
   ' "$snap"
 }
 
-# wb_capture_pane <target> — the pane's current screen, colours kept. A seam
-# so tests can stand in for a live pane without a tmux shim.
-wb_capture_pane() { tmux capture-pane -ep -t "$1" 2>/dev/null; }
-
 # _preview_continue <ref> — for a task with a saved session waiting for Jet
 # (wb continue's `row` file): a block with the Done line and the command, or
 # the reason a release was refused. Nothing for any other row.
@@ -8042,7 +8038,7 @@ _preview() {
     # Trailing blank screen lines are what a half-empty pane is made of;
     # without trimming them, tailing to the window shows only empty rows.
     # A line holding only colour codes and spaces counts as blank.
-    wb_capture_pane "$target" | awk -v n="${FZF_PREVIEW_LINES:-40}" '
+    tmux_capture_pane "$target" | awk -v n="${FZF_PREVIEW_LINES:-40}" '
       { line[NR] = $0; t = $0; gsub(/\033\[[0-9;?]*[A-Za-z]/, "", t); if (t ~ /[^ \t\r]/) last = NR }
       END { s = last - n + 1; if (s < 1) s = 1; for (i = s; i <= last; i++) print line[i] }
     '

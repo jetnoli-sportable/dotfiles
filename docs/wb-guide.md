@@ -1006,6 +1006,35 @@ its origin. `wb review` reuses it and restarts it the same way `wb page` does,
 logging to `~/.local/state/wb/review-server.log`. The page opens in a Chromium
 app window when Chromium is installed.
 
+The page has five views, on keys `1` to `5`:
+
+| Key | View |
+|---|---|
+| `4` | **Since I last looked**: only the files you ticked viewed whose content changed since the tick, each as a diff from what you ticked to the file now |
+| `5` | **Last turn**: what the agent changed between your prompt and the end of its last file-changing turn, with the time that turn ended |
+
+Last turn needs the turn snapshot hook, `wb-turn-snapshot.sh`, which the
+wb-review-hook plugin runs on each prompt and each turn end. It records the
+worktree's tree in two refs private to that worktree,
+`refs/worktree/wb/turn-start` and `refs/worktree/wb/turn`. Until a turn has
+been recorded, or without the hook, the view says so. Touch
+`~/.local/state/wb/disable-turn-snapshot` to switch the hook off.
+
+Sent comments become threads. Each stays on its code as the agent adds or
+removes lines above it. Resolve one (or press `x` on its line) to collapse it,
+and Reopen brings it back. A thread whose line the agent rewrote moves to the
+rail's **Outdated** list; clicking it jumps to where its line was. A draft
+whose line was rewritten keeps Edit and Delete, with an Outdated badge.
+Old-side comments (`C`) work only in the full, uncommitted and commit views.
+
+A review you send while the agent is mid-turn is **held** when that turn ends
+with a closing `**Needs you:**` question, so it doesn't bury the question. The
+page shows the question with a **Deliver now** button. A prompt you type, or a
+review you send after the question, releases the hold.
+
+Vimium users: add the exclusion rule `http://127.0.0.1:*/t/*`, with no pass
+keys, so the page's own keys reach it.
+
 ## `wb board --html` — the full board (v2)
 
 `wb board --html` writes `logs/board.html` (gitignored, overwritten on every
