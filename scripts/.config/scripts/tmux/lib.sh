@@ -265,20 +265,23 @@ claude_pane_lock() {
 # is fresh (what claude-notify-hook.sh's sync_working and agents_live derive).
 claude_pane_live() {
   local name val
-  [ -n "$(tmux show -pv -t "$1" @claude_turn 2>/dev/null)" ] && return 0
   while read -r name val; do
-    case "$name" in @claude_agent_*) ;; *) continue ;; esac
-    [[ "$val" =~ ^[0-9]+$ ]] && ((EPOCHSECONDS - val < CLAUDE_AGENT_TTL_SECS)) && return 0
+    case "$name" in
+      # show -p prints an empty value as '' or ""
+      @claude_turn) [ -n "$val" ] && [ "$val" != "''" ] && [ "$val" != '""' ] && return 0 ;;
+      @claude_agent_*) [[ "$val" =~ ^[0-9]+$ ]] && ((EPOCHSECONDS - val < CLAUDE_AGENT_TTL_SECS)) && return 0 ;;
+    esac
   done < <(tmux show -p -t "$1" 2>/dev/null)
   return 1
 }
 
 # claude_pane_flag_done <pane> — claude-notify-hook.sh's "done" rule: with
 # nothing live, a turn that started at least CLAUDE_DONE_MIN_SECS ago lights
-# @claude_blocked done.
+# @claude_blocked done. A second argument "idle" says the caller already found
+# the pane not live, skipping the check.
 claude_pane_flag_done() {
   local s
-  claude_pane_live "$1" && return 0
+  [ "${2:-}" = idle ] || ! claude_pane_live "$1" || return 0
   s="$(tmux show -pv -t "$1" @claude_started 2>/dev/null)"
   [[ "$s" =~ ^[0-9]+$ ]] && ((EPOCHSECONDS - s >= CLAUDE_DONE_MIN_SECS)) || return 0
   tmux set -p -t "$1" @claude_blocked "done" 2>/dev/null

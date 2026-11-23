@@ -7992,9 +7992,8 @@ _initial_pos() {
   ' "$snap"
 }
 
-# wb_capture_pane <target> — the pane's current screen, colours kept. A seam
-# so tests can stand in for a live pane without a tmux shim.
-wb_capture_pane() { tmux capture-pane -ep -t "$1" 2>/dev/null; }
+# wb_capture_pane <target> — the pane's screen; a seam tests override.
+wb_capture_pane() { tmux_capture_pane "$1"; }
 
 # _preview_continue <ref> — for a task with a saved session waiting for Jet
 # (wb continue's `row` file): a block with the Done line and the command, or

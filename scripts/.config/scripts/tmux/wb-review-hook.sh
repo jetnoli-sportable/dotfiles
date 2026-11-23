@@ -221,14 +221,6 @@ wbrh_pane_stem() {
   wbrh_stem_of "$task"
 }
 
-# wbrh_resync_working <pane> — after dropping our busy marker, put @claude_working
-# back to what claude-notify-hook.sh's sync_working would derive (a running turn
-# or a fresh subagent marker keeps it set), since its own Stop handler may have
-# run first and seen our marker.
-wbrh_resync_working() {
-  if claude_pane_live "$1"; then tmux set -p -t "$1" @claude_working 1; else tmux set -pu -t "$1" @claude_working; fi
-}
-
 # wbrh_clear_busy <pane> [finish] — drop the busy marker the last block set,
 # under the notify hook's per-pane lock. With "finish" (a Stop or StopFailure
 # ended the block's turn) also do what the notify hook's done step would have:
@@ -238,8 +230,15 @@ wbrh_clear_busy() {
   (
     claude_pane_lock "$1"
     tmux set -pu -t "$1" @claude_agent_wbreview 2>/dev/null
-    wbrh_resync_working "$1"
-    [ -n "${2:-}" ] && claude_pane_flag_done "$1"
+    # Put @claude_working back to what claude-notify-hook.sh's sync_working would
+    # derive (a running turn or a fresh subagent marker keeps it set), since its
+    # own Stop handler may have run first and seen our marker.
+    if claude_pane_live "$1"; then
+      tmux set -p -t "$1" @claude_working 1
+    else
+      tmux set -pu -t "$1" @claude_working
+      [ -n "${2:-}" ] && claude_pane_flag_done "$1" idle
+    fi
   )
 }
 
@@ -255,6 +254,7 @@ wbrh_closing_ask() {
   local line end="" i n start re='^(- )?\*\*Needs you:\*\*[[:space:]]*(.*)$'
   local -a lines=() kept=()
   WBRH_ASK=""
+  [[ "$1" == *'**Needs you:**'* ]] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     [[ "$line" == *[![:space:]]* ]] || continue
     while [[ "$line" == *[[:blank:]] ]]; do line="${line%?}"; done
@@ -295,7 +295,7 @@ wbrh_unhold() { rm -f "$WBRH_Q/$1/queue/held" "$WBRH_Q/$1/queue/held.answered"; 
 
 # wbrh_held <stem> — true while the task's pending reviews are held. A pending
 # item created after the held epoch was sent after the question, so it is Jet's
-# answer: that releases the hold and this is false.
+# answer: this is then false and the caller drops the hold.
 wbrh_held() {
   local q="$WBRH_Q/$1/queue" epoch="" f created ts
   [ -e "$q/held" ] || return 1
@@ -306,10 +306,7 @@ wbrh_held() {
     created="$(jq -r '.created // empty' "$f" 2>/dev/null)"
     [ -n "$created" ] || continue
     ts="$(date -u -d "$created" +%s 2>/dev/null)" || continue
-    if ((ts > epoch)); then
-      wbrh_unhold "$1"
-      return 1
-    fi
+    ((ts > epoch)) && return 1
   done
   return 0
 }
@@ -317,14 +314,16 @@ wbrh_held() {
 # --- hook verbs --------------------------------------------------------------------
 
 wbrh_hook() {
-  local stem q input
+  local stem q input finish
   stem="$(wbrh_pane_stem)" || return 0
   q="$WBRH_Q/$stem/queue"
   [ "$WBRH_VERB" = hook-session-start ] && wbrh_unhold "$stem"
   # A hook of this task's session ends the hand-over the last block started.
   if [ -e "$q/inflight" ]; then
     rm -f "$q/inflight"
-    if [ "$WBRH_VERB" = hook-session-start ]; then wbrh_clear_busy "$TMUX_PANE"; else wbrh_clear_busy "$TMUX_PANE" finish; fi
+    finish=finish
+    [ "$WBRH_VERB" = hook-session-start ] && finish=""
+    wbrh_clear_busy "$TMUX_PANE" "$finish"
   fi
   [ "$WBRH_VERB" = hook-stop-failure ] && return 0
   if ! wbrh_has_pending "$stem"; then
@@ -340,7 +339,7 @@ wbrh_hook() {
       return 0
     fi
     if [ -e "$q/held" ]; then
-      if [ -e "$q/held.answered" ]; then wbrh_unhold "$stem"; else wbrh_held "$stem" && return 0; fi
+      if [ -e "$q/held.answered" ]; then wbrh_unhold "$stem"; else wbrh_held "$stem" && return 0; wbrh_unhold "$stem"; fi
     fi
     wbrh_claim "$stem" turn-end || return 0
     printf '%s %s\n' "$TMUX_PANE" "$EPOCHSECONDS" >"$q/inflight"
@@ -381,7 +380,7 @@ wbrh_prompt() {
 # --- deliver (the idle route) -------------------------------------------------------
 
 # wbrh_find_pane <stem> — sets WBRH_PANE to the Claude pane of the tmux session
-# whose @task names this stem (KTD7); false when there is none.
+# whose @task names this stem; false when there is none.
 wbrh_find_pane() {
   local name task row
   WBRH_PANE=""
@@ -426,6 +425,7 @@ wbrh_deliver() {
     wbrh_status "$stem" "held: the session asked you something"
     return 0
   fi
+  [ -e "$WBRH_Q/$stem/queue/held" ] && wbrh_unhold "$stem"
   if [ -e "$WBRH_Q/$stem/queue/inflight" ]; then
     if wbrh_inflight_live "$WBRH_Q/$stem/queue/inflight"; then
       wbrh_status "$stem" "a review hand-over is still being worked on"
