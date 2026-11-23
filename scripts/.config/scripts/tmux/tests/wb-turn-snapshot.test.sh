@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016,SC2329,SC2015 # literal fixtures; trap, ok/bad helpers
-# Tests for U8 of the wb diff viewer slice 2 plan: wb-turn-snapshot.sh, the
+# Tests for wb-turn-snapshot.sh, the
 # prompt and stop hooks that write refs/worktree/wb/turn-start and /turn in a
 # linked worktree. Real git in a temp repo with a linked worktree; a logging
 # PATH shim for git injects slow or failing steps. No tmux is used: TMUX_PANE is

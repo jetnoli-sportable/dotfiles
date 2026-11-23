@@ -142,6 +142,7 @@ main() {
   case "$WBTS_VERB" in prompt | stop | _prompt) ;; *) return 0 ;; esac
   dirs="$(git_ rev-parse --absolute-git-dir --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
   GD="${dirs%%$'\n'*}"
+  # Only a linked worktree's git dir differs from the common dir.
   [ -n "$GD" ] && [ "$GD" != "${dirs#*$'\n'}" ] || return 0
   case "$WBTS_VERB" in
     _prompt)
