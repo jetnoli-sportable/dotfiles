@@ -1247,6 +1247,43 @@ port 8776, falling forward up to 8785, so no agent-written dossier page shares
 its origin. <code>wb review</code> reuses it and restarts it the same way <code>wb page</code> does,
 logging to <code>~/.local/state/wb/review-server.log</code>. The page opens in a Chromium
 app window when Chromium is installed.</p>
+<p>The page has five views, on keys <code>1</code> to <code>5</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>View</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>4</code></td>
+<td><strong>Since I last looked</strong>: only the files you ticked viewed whose content changed since the tick, each as a diff from what you ticked to the file now</td>
+</tr>
+<tr>
+<td><code>5</code></td>
+<td><strong>Last turn</strong>: what the agent changed between your prompt and the end of its last file-changing turn, with the time that turn ended</td>
+</tr>
+</tbody>
+</table>
+<p>Last turn needs the turn snapshot hook, <code>wb-turn-snapshot.sh</code>, which the
+wb-review-hook plugin runs on each prompt and each turn end. It records the
+worktree's tree in two refs private to that worktree,
+<code>refs/worktree/wb/turn-start</code> and <code>refs/worktree/wb/turn</code>. Until a turn has
+been recorded, or without the hook, the view says so. Touch
+<code>~/.local/state/wb/disable-turn-snapshot</code> to switch the hook off.</p>
+<p>Sent comments become threads. Each stays on its code as the agent adds or
+removes lines above it. Resolve one (or press <code>x</code> on its line) to collapse it,
+and Reopen brings it back. A thread whose line the agent rewrote moves to the
+rail's <strong>Outdated</strong> list; clicking it jumps to where its line was. A draft
+whose line was rewritten keeps Edit and Delete, with an Outdated badge.
+Old-side comments (<code>C</code>) work only in the full, uncommitted and commit views.</p>
+<p>A review you send while the agent is mid-turn is <strong>held</strong> when that turn ends
+with a closing <code>**Needs you:**</code> question, so it doesn't bury the question. The
+page shows the question with a <strong>Deliver now</strong> button. A prompt you type, or a
+review you send after the question, releases the hold.</p>
+<p>Vimium users: add the exclusion rule <code>http://127.0.0.1:*/t/*</code>, with no pass
+keys, so the page's own keys reach it.</p>
 <h2 id="wb-board---html--the-full-board-v2"><code>wb board --html</code> — the full board (v2)</h2>
 <p><code>wb board --html</code> writes <code>logs/board.html</code> (gitignored, overwritten on every
 call) — a richer, filterable view over the whole store that goes well beyond
