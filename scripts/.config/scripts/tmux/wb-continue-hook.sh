@@ -356,48 +356,16 @@ wbch_back_armed() {
 
 # wbch_input_pending <pane> — text on Claude's input line, or no input line on
 # screen (a dialog, a menu, an unreadable screen: fail closed); WBCH_PENDING
-# says which. The input line is the last line that starts with the prompt glyph
-# followed by a no-break space (transcript lines use a plain space). An empty
-# line is blank or shows a dim placeholder; typed text is not dim.
+# says which. The check itself is lib.sh's tmux_input_pending.
 wbch_input_pending() {
-  local screen line plain rest prompt=$'\xe2\x9d\xaf\xc2\xa0' found="" ext
-  ext="$(shopt -p extglob)"
-  shopt -s extglob
-  screen="$(wb_capture_pane "$1")" || screen=""
-  while IFS= read -r line; do
-    plain="${line//$'\e'\[*([0-9;])m/}"
-    [[ "$plain" == "$prompt"* ]] && found="$line"
-  done <<<"$screen"
-  eval "$ext"
   WBCH_PENDING="text or a dialog on the input line"
-  [ -n "$found" ] || return 0
-  rest="${found#*"$prompt"}"
-  rest="${rest//$'\e'\[[039]m/}"
-  rest="${rest//$'\e'\[49m/}"
-  rest="${rest//$'\e'\[m/}"
-  while [[ "$rest" == *[[:space:]] ]]; do rest="${rest%?}"; done
-  [ -n "$rest" ] && [[ "$rest" != $'\e[2m'* ]]
+  tmux_input_pending "$1"
 }
 
 # wbch_settle <pane> — wait until @claude_working has been empty for the whole
-# settle time (the notify hook clears it on Stop, alongside this hook); false
-# when it stays set, or is set again, past the overall limit.
+# settle time; false when it stays set, or is set again, past the overall limit.
 wbch_settle() {
-  local need="${WB_CONTINUE_SETTLE_MS:-1500}" max="${WB_CONTINUE_SETTLE_MAX_MS:-5000}"
-  local t0 now clear_since="" working
-  t0="${EPOCHREALTIME/./}"
-  while :; do
-    now="${EPOCHREALTIME/./}"
-    working="$(tmux show -pv -t "$1" @claude_working 2>/dev/null)"
-    if [ -n "$working" ]; then
-      clear_since=""
-    else
-      [ -n "$clear_since" ] || clear_since="$now"
-      [ $(((now - clear_since) / 1000)) -ge "$need" ] && return 0
-    fi
-    [ $(((now - t0) / 1000)) -ge "$max" ] && return 1
-    sleep 0.1
-  done
+  tmux_settle "$1" "${WB_CONTINUE_SETTLE_MS:-1500}" "${WB_CONTINUE_SETTLE_MAX_MS:-5000}"
 }
 
 # wbch_descends <pid> <ancestor> — true when <pid> is <ancestor> or below it.

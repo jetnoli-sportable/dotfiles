@@ -974,8 +974,9 @@ SCREEN_LIVE_BLANK="$RULE"'\e[39m\xe2\x9d\xaf\xc2\xa0\n'
 SCREEN_LIVE_DIM="$RULE"'\e[39m\xe2\x9d\xaf\xc2\xa0\e[2mTry something else\e[0m\n'
 SCREEN_LIVE_TEXT="$RULE"'\e[39m\xe2\x9d\xaf\xc2\xa0hello\n'
 # The same three lines as bytes, straight into the parser (no tmux in between).
+eval "$(sed -n '/^tmux_input_pending() {/,/^}/p' "$(dirname "$HOOK")/lib.sh")"
 eval "$(sed -n '/^wbch_input_pending() {/,/^}/p' "$HOOK")"
-input_pending_for() { ( SCR="$1"; wb_capture_pane() { printf '%b' "$SCR"; }; wbch_input_pending %0 && echo pending || echo clear ); }
+input_pending_for() { ( SCR="$1"; tmux_capture_pane() { printf '%b' "$SCR"; }; wbch_input_pending %0 && echo pending || echo clear ); }
 assert_eq "bytes: \\e[39m, glyph, dim suggestion: clear" clear "$(input_pending_for '\e[39m\xe2\x9d\xaf\xc2\xa0\e[2mTry something else\e[0m\n')"
 assert_eq "bytes: \\e[39m, glyph, typed text: pending" pending "$(input_pending_for '\e[39m\xe2\x9d\xaf\xc2\xa0hello\n')"
 assert_eq "bytes: \\e[39m, glyph, blank: clear" clear "$(input_pending_for '\e[39m\xe2\x9d\xaf\xc2\xa0\n')"

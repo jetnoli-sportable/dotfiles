@@ -91,10 +91,10 @@ endsessions() {
   for s in $(t list-sessions -F '#{session_name}' 2>/dev/null); do t kill-session -t "=$s"; done
 }
 
-# item <stem> <id> <record-path> — a pending queue item as the server writes it.
+# item <stem> <id> <record-path> [created] — a pending queue item as the server writes it.
 item() {
   mkdir -p "$RQ/$1/queue/pending"
-  printf '{"id":"%s","stem":"%s","record":"%s","created":"2026-11-22T20:15:00Z","comments":3}\n' "$2" "$1" "$3" \
+  printf '{"id":"%s","stem":"%s","record":"%s","created":"%s","comments":3}\n' "$2" "$1" "$3" "${4:-2026-11-22T20:15:00Z}" \
     >"$RQ/$1/queue/pending/$2.json"
 }
 reset() {
@@ -107,6 +107,17 @@ status_of() { cat "$RQ/$1/queue/status" 2>/dev/null; }
 # hook <verb> <pane> — run a hook verb the way Claude does, stdout captured.
 hook() { echo '{"hook_event_name":"x","stop_hook_active":false}' | TMUX_PANE="$2" bash "$HOOK" "$1"; }
 deliver() { bash "$HOOK" deliver "$1"; }
+# stopmsg <pane> <reply> — a Stop whose last assistant message is <reply>.
+stopmsg() {
+  "$REAL_JQ" -n --arg m "$2" '{hook_event_name:"Stop",stop_hook_active:false,last_assistant_message:$m}' | TMUX_PANE="$1" bash "$HOOK" hook-stop
+}
+# promptin <pane> <prompt> — a UserPromptSubmit with <prompt>.
+promptin() {
+  local json
+  json="$("$REAL_JQ" -n --arg p "$2" '{hook_event_name:"UserPromptSubmit",prompt:$p}')"
+  TMUX_PANE="$1" bash "$HOOK" hook-prompt <<<"$json"
+}
+held_f() { echo "$RQ/$1/queue/held"; }
 
 REC_A="$FIX/tasks/dossiers/tk-a/reviews/2026-11-22-201500-review.md"
 REC_B="$FIX/tasks/dossiers/tk-a/reviews/2026-11-22-203000-review.md"
@@ -419,6 +430,200 @@ deliver ''
 deliver '..'
 assert_eq "bad stems: nothing claimed, no tmux call" "1:" "$(find "$STATE/evil/queue/pending" -name '*.json' | wc -l):$(cat "$CALLS")"
 
+# --- AE11: a turn that ends with "Needs you" holds the review ------------------------------------
+reset
+newpane s1 tk-a prompt
+P1="$PANE"
+item tk-a r-1 "$REC_A"
+t set -p -t "$P1" @claude_working 1
+out="$(stopmsg "$P1" $'Built the routes.\n\n**Needs you:** pick A or B')"
+assert_eq "AE11: a closing Needs you: no block JSON" "" "$out"
+assert_eq "AE11: the item stays pending" 1 "$(pending_n tk-a)"
+assert_eq "AE11: held line 2 is the question" "pick A or B" "$(sed -n 2p "$(held_f tk-a)")"
+assert_eq "AE11: held line 1 is an epoch" yes "$([[ "$(sed -n 1p "$(held_f tk-a)")" =~ ^[0-9]{10}$ ]] && echo yes)"
+assert_eq "AE11: held status" "held: the session asked you something" "$(status_of tk-a)"
+[ ! -e "$RQ/tk-a/queue/inflight" ] && ok "AE11: nothing in flight" || bad "AE11: nothing in flight"
+assert_eq "AE11: nothing typed" 0 "$(sends)"
+deliver tk-a
+rc=$?
+assert_eq "AE11: deliver with held and no newer item: exit 0, nothing typed, item pending" "0 0 1" "$rc $(sends) $(pending_n tk-a)"
+assert_eq "AE11: deliver keeps the held status" "held: the session asked you something" "$(status_of tk-a)"
+assert_eq "held: a Stop with no answer yet keeps holding" "" "$(stopmsg "$P1" 'Still going.')"
+assert_eq "held: ... and the item stays pending" 1 "$(pending_n tk-a)"
+endsessions
+
+# a newer item is Jet's answer: deliver claims everything and drops the hold
+reset
+newpane s1 tk-a prompt
+item tk-a r-1 "$REC_A" 2026-11-22T20:15:00Z
+item tk-a r-2 "$REC_B" 2026-11-22T20:30:00Z
+printf '%s\n%s\n' "$(date -u -d 2026-11-22T20:20:00Z +%s)" "pick A or B" >"$(held_f tk-a)"
+: >"$RQ/tk-a/queue/held.answered"
+deliver tk-a
+assert_eq "AE11: deliver claims everything when an item is newer than the hold" 0 "$(pending_n tk-a)"
+assert_eq "AE11: ... typed at the prompt" prompt "$(delivered_route tk-a r-2)"
+assert_eq "AE11: ... the older item went with it" prompt "$(delivered_route tk-a r-1)"
+[ ! -e "$(held_f tk-a)" ] && [ ! -e "$RQ/tk-a/queue/held.answered" ] && ok "AE11: ... held and held.answered removed" || bad "AE11: ... held and held.answered removed"
+endsessions
+
+# the turn-end route does the same for a newer item
+reset
+newpane s1 tk-a prompt
+P1="$PANE"
+item tk-a r-1 "$REC_B" 2026-11-22T20:30:00Z
+printf '%s\n%s\n' "$(date -u -d 2026-11-22T20:20:00Z +%s)" "pick A or B" >"$(held_f tk-a)"
+out="$(stopmsg "$P1" 'Done.')"
+assert_eq "held: a newer item is claimed at the next turn end" block "$(jq -r .decision <<<"$out")"
+[ ! -e "$(held_f tk-a)" ] && ok "held: ... and the hold is gone" || bad "held: ... and the hold is gone"
+endsessions
+
+# "needs you" mid-text is not a closing line
+reset
+newpane s1 tk-a prompt
+P1="$PANE"
+item tk-a r-1 "$REC_A"
+out="$(stopmsg "$P1" $'The reply says it needs you to know X.\n\nAll done.')"
+assert_eq "mid-text needs you: claims as usual" block "$(jq -r .decision <<<"$out")"
+[ ! -e "$(held_f tk-a)" ] && ok "mid-text needs you: no hold" || bad "mid-text needs you: no hold"
+endsessions
+
+# the closing-line rule, as wb-store's needsYouRe and replyEnd pin it
+holds() { # <reply> — held or claimed
+  reset
+  newpane s1 tk-a prompt
+  item tk-a r-1 "$REC_A"
+  stopmsg "$PANE" "$1" >/dev/null
+  [ -e "$(held_f tk-a)" ] && echo held || echo claimed
+  endsessions
+}
+assert_eq "rule: a bulleted Needs you line holds" held "$(holds $'Built.\n- **Needs you:** merge it')"
+assert_eq "rule: a numbered list under a bare Needs you holds" held "$(holds $'Built.\n**Needs you:**\n1. merge\n2. test')"
+assert_eq "rule: Needs you inside the last 12 non-blank lines holds" held "$(holds $'**Needs you:** x\n\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11')"
+assert_eq "rule: Needs you above the last 12 non-blank lines claims" claimed "$(holds $'**Needs you:** x\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12')"
+assert_eq "rule: a lowercase 'needs you' marker claims" claimed "$(holds $'Built.\n**needs you:** x')"
+assert_eq "rule: an indented marker claims" claimed "$(holds $'Built.\n  **Needs you:** x')"
+assert_eq "rule: a Nothing-needed last line claims" claimed "$(holds $'**Needs you:** x\n**Nothing needed.**')"
+assert_eq "rule: a missing last_assistant_message claims" claimed "$(holds '')"
+reset
+newpane s1 tk-a prompt
+item tk-a r-1 "$REC_A"
+stopmsg "$PANE" $'Built.\n**Needs you:**\n  merge PR 4 or tell me to hold' >/dev/null
+assert_eq "rule: a bare marker takes the next line as the question" "merge PR 4 or tell me to hold" "$(sed -n 2p "$(held_f tk-a)")"
+endsessions
+
+# --- hook-prompt: Jet's answer releases the hold at the next quiet Stop -----------------------------
+reset
+newpane s1 tk-a prompt
+P1="$PANE"
+item tk-a r-1 "$REC_A"
+stopmsg "$P1" $'Q.\n**Needs you:** pick' >/dev/null
+out="$(promptin "$P1" 'pick A')"
+assert_eq "hook-prompt prints nothing" "" "$out"
+[ -e "$RQ/tk-a/queue/held.answered" ] && ok "hook-prompt: a typed prompt writes held.answered" || bad "hook-prompt: a typed prompt writes held.answered"
+out="$(stopmsg "$P1" 'Went with A.')"
+assert_eq "answered: the next Stop without a Needs you claims" block "$(jq -r .decision <<<"$out")"
+[ ! -e "$(held_f tk-a)" ] && [ ! -e "$RQ/tk-a/queue/held.answered" ] && ok "answered: hold and note removed" || bad "answered: hold and note removed"
+endsessions
+
+reset
+newpane s1 tk-a prompt
+P1="$PANE"
+item tk-a r-1 "$REC_A"
+stopmsg "$P1" $'Q.\n**Needs you:** pick' >/dev/null
+promptin "$P1" 'pick A' >/dev/null
+out="$(stopmsg "$P1" $'Still unsure.\n**Needs you:** really pick')"
+assert_eq "answered, but the turn ends with a new question: still held" "" "$out"
+assert_eq "answered, new question: held.answered is reset" "gone" "$([ -e "$RQ/tk-a/queue/held.answered" ] && echo there || echo gone)"
+assert_eq "answered, new question: the new text is held" "really pick" "$(sed -n 2p "$(held_f tk-a)")"
+endsessions
+
+reset
+newpane s1 tk-a shell
+P1="$PANE"
+item tk-a r-1 "$REC_A"
+mkdir -p "$RQ/tk-a/queue"
+printf '%s\n%s\n' "$(date +%s)" "pick" >"$(held_f tk-a)"
+out="$(hook hook-session-start "$P1")"
+assert_eq "held: session start claims" "$PTR_A" "$(jq -r .hookSpecificOutput.additionalContext <<<"$out")"
+[ ! -e "$(held_f tk-a)" ] && ok "held: session start removes the hold" || bad "held: session start removes the hold"
+endsessions
+
+# prompts nobody typed do not answer
+for ap in $'Another Claude session sent a message:\n<cross-session-message>hi' '<task-notification>done</task-notification>' $'  \n<task-notification>x' '(background task finished)' '[SYSTEM] note' 'Your claude.ai usage limit has reset. Continue.'; do
+  reset
+  newpane s1 tk-a prompt
+  P1="$PANE"
+  item tk-a r-1 "$REC_A"
+  stopmsg "$P1" $'Q.\n**Needs you:** pick' >/dev/null
+  promptin "$P1" "$ap" >/dev/null
+  [ ! -e "$RQ/tk-a/queue/held.answered" ] && ok "auto prompt writes no held.answered: ${ap//$'\n'/ }" || bad "auto prompt writes no held.answered: ${ap//$'\n'/ }"
+  assert_eq "auto prompt: the following quiet Stop leaves the review held" "1:" "$(pending_n tk-a):$(stopmsg "$P1" 'Progress report.')"
+  endsessions
+done
+
+# no held file anywhere: exits before any fork
+reset
+newpane s1 tk-a prompt
+P1="$PANE"
+item tk-a r-1 "$REC_A"
+: >"$CALLS"
+promptin "$P1" 'hello' >/dev/null
+rc=$?
+assert_eq "no held file: hook-prompt exits 0 with no tmux or jq call" "0:" "$rc:$(cat "$CALLS")"
+endsessions
+
+# --- deliver's exit code ----------------------------------------------------------------------------
+reset
+newpane s1 tk-a shell
+item tk-a r-1 "$REC_A"
+deliver tk-a
+assert_eq "deliver with no Claude pane: exit 3" 3 "$?"
+endsessions
+reset
+newpane s1 tk-a prompt
+t set -p -t "$PANE" @claude_working 1
+item tk-a r-1 "$REC_A"
+deliver tk-a
+assert_eq "deliver with a busy pane: exit 0" 0 "$?"
+endsessions
+reset
+newpane s1 tk-a prompt
+item tk-a r-1 "$REC_A"
+deliver tk-a
+assert_eq "deliver that types: exit 0" 0 "$?"
+endsessions
+
+# --- the done light after a review-block turn ----------------------------------------------------------
+for age in 60 5; do
+  reset
+  newpane s1 tk-a prompt
+  P1="$PANE"
+  item tk-a r-1 "$REC_A"
+  t set -p -t "$P1" @claude_turn 1
+  t set -p -t "$P1" @claude_started "$(($(date +%s) - age))"
+  hook hook-stop "$P1" >/dev/null
+  t set -pu -t "$P1" @claude_turn
+  TMUX_PANE="$P1" bash "$NOTIFY" "done" </dev/null
+  assert_eq "block turn ${age}s: the notify hook ran first and saw the busy marker" "" "$(t show -pv -t "$P1" @claude_blocked 2>/dev/null)"
+  hook hook-stop "$P1" >/dev/null
+  if [ "$age" = 60 ]; then
+    assert_eq "block turn ${age}s: the review hook's Stop lights done" "done" "$(t show -pv -t "$P1" @claude_blocked 2>/dev/null)"
+  else
+    assert_eq "block turn ${age}s: under 30 s stays unset" "" "$(t show -pv -t "$P1" @claude_blocked 2>/dev/null)"
+  fi
+  endsessions
+done
+reset
+newpane s1 tk-a prompt
+P1="$PANE"
+item tk-a r-1 "$REC_A"
+t set -p -t "$P1" @claude_started "$(($(date +%s) - 90))"
+hook hook-stop "$P1" >/dev/null
+t set -p -t "$P1" @claude_turn 1
+hook hook-stop "$P1" >/dev/null
+assert_eq "a turn still running at the clearing Stop: not flagged done" "" "$(t show -pv -t "$P1" @claude_blocked 2>/dev/null)"
+endsessions
+
 # --- the plugin ---------------------------------------------------------------------------------------
 PLUGIN="$REPO/claude/.claude/skills/wb-review-hook"
 HOOKS="$PLUGIN/hooks/hooks.json"
@@ -426,12 +631,13 @@ MANIFEST="$PLUGIN/.claude-plugin/plugin.json"
 assert_eq "plugin name" wb-review-hook "$(jq -r .name "$MANIFEST" 2>/dev/null)"
 assert_eq "manifest keys are name/description/author only" '["author","description","name"]' "$(jq -c keys "$MANIFEST" 2>/dev/null)"
 [ ! -e "$PLUGIN/SKILL.md" ] && ok "plugin dir carries no SKILL.md (hooks only)" || bad "plugin dir carries no SKILL.md (hooks only)"
-assert_eq "plugin: exactly Stop, StopFailure and SessionStart" '["SessionStart","Stop","StopFailure"]' "$(jq -c '.hooks | keys' "$HOOKS" 2>/dev/null)"
-assert_eq "plugin: one hook per event" 3 "$(jq '[.hooks[][].hooks[]] | length' "$HOOKS" 2>/dev/null)"
-for pair in Stop:hook-stop StopFailure:hook-stop-failure SessionStart:hook-session-start; do
+assert_eq "plugin: Stop, StopFailure, SessionStart and UserPromptSubmit" '["SessionStart","Stop","StopFailure","UserPromptSubmit"]' "$(jq -c '.hooks | keys' "$HOOKS" 2>/dev/null)"
+for pair in Stop:hook-stop StopFailure:hook-stop-failure SessionStart:hook-session-start UserPromptSubmit:hook-prompt; do
   ev="${pair%%:*}" want="${pair#*:}"
-  assert_eq "$ev: timeout 5, synchronous" "5 false" "$(jq -r ".hooks.${ev}[0].hooks[0] | \"\(.timeout) \(.async == true)\"" "$HOOKS" 2>/dev/null)"
-  cmd="$(jq -r ".hooks.${ev}[0].hooks[0].command" "$HOOKS" 2>/dev/null)"
+  RH='[.hooks.'"$ev"'[].hooks[] | select(.command | test("wb-review-hook.sh"))]'
+  assert_eq "$ev: exactly one wb-review-hook.sh hook" 1 "$(jq "$RH | length" "$HOOKS" 2>/dev/null)"
+  assert_eq "$ev: timeout 5, synchronous" "5 false" "$(jq -r "${RH}[0] | \"\(.timeout) \(.async == true)\"" "$HOOKS" 2>/dev/null)"
+  cmd="$(jq -r "${RH}[0].command" "$HOOKS" 2>/dev/null)"
   path="$(WB_REVIEW_BIN="$SELF_DIR" HOME=/nonexistent bash -c 'eval "set -- $1"; printf %s "$1"' _ "$cmd")"
   verb="$(WB_REVIEW_BIN="$SELF_DIR" HOME=/nonexistent bash -c 'eval "set -- $1"; printf %s "${2:-}"' _ "$cmd")"
   [ -x "$path" ] && ok "$ev: script exists and is executable" || bad "$ev: script exists and is executable" "$path"

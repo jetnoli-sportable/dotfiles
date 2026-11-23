@@ -11,9 +11,12 @@
 #   hook-session-start   SessionStart hook: add the pointer to Claude's context
 #   hook-stop-failure    StopFailure hook: the turn died on an API error; only
 #                        drop the hand-over marker, print nothing
+#   hook-prompt          UserPromptSubmit hook: while a review is held, note that
+#                        Jet answered (a prompt he typed), print nothing
 #   deliver <stem>       run by the review server after Send: type the pointer
 #                        at an idle session's prompt, when every guard passes;
-#                        otherwise leave the review queued and say why
+#                        otherwise leave the review queued and say why. Exits 3
+#                        when no Claude runs for the task, 0 otherwise
 #
 # Wired by the hooks-only wb-review-hook plugin
 # (claude/.claude/skills/wb-review-hook/hooks/hooks.json, stowed into
@@ -29,7 +32,17 @@
 # State, under ${XDG_STATE_HOME:-~/.local/state}/wb:
 #   disable-review                     kill switch: every verb exits at once
 #   review/<stem>/queue/pending|claimed|delivered/<id>.json, queue/inflight,
-#   queue/status                       the queue contract written by wb-store
+#   queue/status, queue/held, queue/held.answered
+#                                      the queue contract written by wb-store
+#
+# A review that would bury a question is held. When a turn ends with a closing
+# "**Needs you:**" line, hook-stop claims nothing and writes queue/held (line 1:
+# the epoch, line 2: the first line of the question) and the status "held: the
+# session asked you something". While held exists no route claims, except for an
+# item created after the held epoch (Jet sent it after the question, so it is
+# his answer), which releases the hold; so does a session start, and a Stop with
+# no "Needs you" line once hook-prompt has written the empty queue/held.answered.
+# The server's "Deliver now" removes both files and runs `deliver`.
 #
 # A block starts a turn no UserPromptSubmit announces, and claude-notify-hook.sh's
 # Stop handler marks the pane done. So the block also sets @claude_agent_wbreview
@@ -50,13 +63,20 @@ WBRH_VERB="${1:-}"
 
 # --- the cheap prefilter (plain bash, no forks) -----------------------------------
 
-# wbrh_any_work — a pending item, or an in-flight marker the next hook must
-# clear, exists for some task.
+# wbrh_any_work — a pending item, an in-flight marker the next hook must clear,
+# or a held marker (a stale one goes at the next turn end) exists for some task.
 wbrh_any_work() {
   local f
-  for f in "$WBRH_Q"/*/queue/pending/*.json "$WBRH_Q"/*/queue/inflight; do
+  for f in "$WBRH_Q"/*/queue/pending/*.json "$WBRH_Q"/*/queue/inflight "$WBRH_Q"/*/queue/held; do
     [ -e "$f" ] && return 0
   done
+  return 1
+}
+
+# wbrh_any_held — a held marker exists for some task.
+wbrh_any_held() {
+  local f
+  for f in "$WBRH_Q"/*/queue/held; do [ -e "$f" ] && return 0; done
   return 1
 }
 
@@ -79,13 +99,13 @@ wbrh_stem_of() {
 }
 
 case "$WBRH_VERB" in
-  hook-stop | hook-session-start | hook-stop-failure)
+  hook-stop | hook-session-start | hook-stop-failure | hook-prompt)
     exec 2>/dev/null
     [ -e "$WBRH_STATE/disable-review" ] && exit 0
     [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = 0 ] && exit 0
     case "${CLAUDE_CODE_ENTRYPOINT:-}" in sdk*) exit 0 ;; esac
     [ -n "${TMUX_PANE:-}" ] || exit 0
-    wbrh_any_work || exit 0
+    if [ "$WBRH_VERB" = hook-prompt ]; then wbrh_any_held || exit 0; else wbrh_any_work || exit 0; fi
     ;;
   deliver)
     exec >/dev/null 2>&1
@@ -93,6 +113,9 @@ case "$WBRH_VERB" in
     ;;
   *) exit 0 ;;
 esac
+
+# shellcheck source=lib.sh
+source "$WBRH_DIR/lib.sh" || exit 0
 
 # --- queue helpers -------------------------------------------------------------------
 
@@ -203,36 +226,122 @@ wbrh_pane_stem() {
 # or a fresh subagent marker keeps it set), since its own Stop handler may have
 # run first and seen our marker.
 wbrh_resync_working() {
-  local name val live=0
-  [ -n "$(tmux show -pv -t "$1" @claude_turn 2>/dev/null)" ] && live=1
-  while read -r name val; do
-    case "$name" in @claude_agent_*) ;; *) continue ;; esac
-    [[ "$val" =~ ^[0-9]+$ ]] && ((EPOCHSECONDS - val < 7200)) && live=1
-  done < <(tmux show -p -t "$1" 2>/dev/null)
-  if [ "$live" = 1 ]; then tmux set -p -t "$1" @claude_working 1; else tmux set -pu -t "$1" @claude_working; fi
+  if claude_pane_live "$1"; then tmux set -p -t "$1" @claude_working 1; else tmux set -pu -t "$1" @claude_working; fi
 }
 
-# wbrh_clear_busy <pane> — drop the busy marker the last block set.
+# wbrh_clear_busy <pane> [finish] — drop the busy marker the last block set,
+# under the notify hook's per-pane lock. With "finish" (a Stop or StopFailure
+# ended the block's turn) also do what the notify hook's done step would have:
+# its own Stop handler ran before this one and saw our marker as a live agent,
+# so a long turn would never light "done".
 wbrh_clear_busy() {
-  tmux set -pu -t "$1" @claude_agent_wbreview 2>/dev/null
-  wbrh_resync_working "$1"
+  (
+    claude_pane_lock "$1"
+    tmux set -pu -t "$1" @claude_agent_wbreview 2>/dev/null
+    wbrh_resync_working "$1"
+    [ -n "${2:-}" ] && claude_pane_flag_done "$1"
+  )
+}
+
+# --- the "Needs you" hold -------------------------------------------------------
+
+# wbrh_closing_ask <reply> — true when the reply ends with a closing
+# "**Needs you:** ..." line; sets WBRH_ASK to its text (the next line when the
+# marker stands alone). Mirrors wb-store's needsYouRe and replyEnd
+# (internal/store/asks.go): the first such line among the last 12 non-blank
+# lines, keeping the reply's last 1200 characters (wb-store counts bytes), and
+# never when the last line is "**Nothing needed.**".
+wbrh_closing_ask() {
+  local line end="" i n start re='^(- )?\*\*Needs you:\*\*[[:space:]]*(.*)$'
+  local -a lines=() kept=()
+  WBRH_ASK=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" == *[![:space:]]* ]] || continue
+    while [[ "$line" == *[[:blank:]] ]]; do line="${line%?}"; done
+    lines+=("$line")
+  done <<<"$1"
+  n="${#lines[@]}"
+  [ "$n" -gt 0 ] || return 1
+  start=$((n > 12 ? n - 12 : 0))
+  for ((i = start; i < n; i++)); do end+="${lines[i]}"$'\n'; done
+  end="${end%$'\n'}"
+  [ "${#end}" -gt 1200 ] && end="${end: -1200}"
+  while IFS= read -r line; do kept+=("$line"); done <<<"$end"
+  n="${#kept[@]}"
+  [[ "${kept[n - 1]}" == *'**Nothing needed.**'* ]] && return 1
+  for ((i = 0; i < n; i++)); do
+    [[ "${kept[i]}" =~ $re ]] || continue
+    WBRH_ASK="${BASH_REMATCH[2]}"
+    if [ -z "$WBRH_ASK" ] && [ "$((i + 1))" -lt "$n" ]; then
+      WBRH_ASK="${kept[i + 1]#"${kept[i + 1]%%[![:space:]]*}"}"
+    fi
+    WBRH_ASK="${WBRH_ASK//[[:cntrl:]]/ }"
+    return 0
+  done
+  return 1
+}
+
+# wbrh_hold <stem> <ask> — write queue/held (epoch, then the ask) and the status.
+# A new question needs a new answer, so an old held.answered goes.
+wbrh_hold() {
+  local q="$WBRH_Q/$1/queue"
+  printf '%s\n%s\n' "$EPOCHSECONDS" "$2" >"$q/held.tmp.$$" && mv -f "$q/held.tmp.$$" "$q/held"
+  rm -f "$q/held.answered"
+  wbrh_status "$1" "held: the session asked you something"
+}
+
+# wbrh_unhold <stem> — drop the hold and the note that Jet answered.
+wbrh_unhold() { rm -f "$WBRH_Q/$1/queue/held" "$WBRH_Q/$1/queue/held.answered"; }
+
+# wbrh_held <stem> — true while the task's pending reviews are held. A pending
+# item created after the held epoch was sent after the question, so it is Jet's
+# answer: that releases the hold and this is false.
+wbrh_held() {
+  local q="$WBRH_Q/$1/queue" epoch="" f created ts
+  [ -e "$q/held" ] || return 1
+  read -r epoch <"$q/held" || true
+  [[ "$epoch" =~ ^[0-9]+$ ]] || epoch=0
+  for f in "$q"/pending/*.json; do
+    [ -e "$f" ] || continue
+    created="$(jq -r '.created // empty' "$f" 2>/dev/null)"
+    [ -n "$created" ] || continue
+    ts="$(date -u -d "$created" +%s 2>/dev/null)" || continue
+    if ((ts > epoch)); then
+      wbrh_unhold "$1"
+      return 1
+    fi
+  done
+  return 0
 }
 
 # --- hook verbs --------------------------------------------------------------------
 
 wbrh_hook() {
-  local stem q
+  local stem q input
   stem="$(wbrh_pane_stem)" || return 0
   q="$WBRH_Q/$stem/queue"
+  [ "$WBRH_VERB" = hook-session-start ] && wbrh_unhold "$stem"
   # A hook of this task's session ends the hand-over the last block started.
   if [ -e "$q/inflight" ]; then
     rm -f "$q/inflight"
-    wbrh_clear_busy "$TMUX_PANE"
+    if [ "$WBRH_VERB" = hook-session-start ]; then wbrh_clear_busy "$TMUX_PANE"; else wbrh_clear_busy "$TMUX_PANE" finish; fi
   fi
   [ "$WBRH_VERB" = hook-stop-failure ] && return 0
-  wbrh_has_pending "$stem" || return 0
+  if ! wbrh_has_pending "$stem"; then
+    wbrh_unhold "$stem"
+    return 0
+  fi
   if [ "$WBRH_VERB" = hook-stop ]; then
     wbrh_continue_pending && return 0
+    input=""
+    [ -t 0 ] || input="$(cat 2>/dev/null)"
+    if wbrh_closing_ask "$(jq -r '.last_assistant_message // empty' <<<"$input" 2>/dev/null)"; then
+      wbrh_hold "$stem" "$WBRH_ASK"
+      return 0
+    fi
+    if [ -e "$q/held" ]; then
+      if [ -e "$q/held.answered" ]; then wbrh_unhold "$stem"; else wbrh_held "$stem" && return 0; fi
+    fi
     wbrh_claim "$stem" turn-end || return 0
     printf '%s %s\n' "$TMUX_PANE" "$EPOCHSECONDS" >"$q/inflight"
     # Both Stop hooks run in parallel: the marker keeps the notify hook's own
@@ -248,58 +357,28 @@ wbrh_hook() {
   wbrh_mark_delivered "$stem"
 }
 
+# wbrh_prompt — UserPromptSubmit while a review is held: a prompt Jet typed is
+# his answer to the question. A prompt that opens with a marker of a turn nobody
+# typed (another session's message, a background or task notification, a system
+# note, the usage-limit reset; wb-store's autoMarkers, here as the raw prompt
+# text the way wb-capture.sh's hook_prompt_stamp sees it) is not.
+wbrh_prompt() {
+  local stem q input prompt
+  stem="$(wbrh_pane_stem)" || return 0
+  q="$WBRH_Q/$stem/queue"
+  [ -e "$q/held" ] || return 0
+  input=""
+  [ -t 0 ] || input="$(cat 2>/dev/null)"
+  prompt="$(jq -r '.prompt // empty' <<<"$input" 2>/dev/null)"
+  prompt="${prompt#"${prompt%%[![:space:]]*}"}"
+  case "$prompt" in
+    'Another Claude session sent a message:'* | '(message from another session)'* | '(background'* | \
+      '<task-notification'* | '<agent-message'* | '[SYSTEM'* | 'Your claude.ai usage limit has reset.'*) return 0 ;;
+  esac
+  : >"$q/held.answered"
+}
+
 # --- deliver (the idle route) -------------------------------------------------------
-
-# Copied from wb.sh's wb_capture_pane (wb.sh can't be sourced cheaply here): the
-# pane's current screen, colours kept.
-wbrh_capture_pane() { tmux capture-pane -ep -t "$1" 2>/dev/null; }
-
-# Copied from wb-continue-hook.sh's wbch_input_pending (that file dispatches on
-# $1 and exits, so it can't be sourced): sets WBRH_INPUT to "text" when text is
-# on Claude's input line, "none" when no input line is on screen (a dialog or
-# menu: fail closed); false only when the input line is empty. The input line is
-# the last line starting with the prompt glyph and a no-break space.
-wbrh_input_pending() {
-  local screen line plain rest prompt=$'\xe2\x9d\xaf\xc2\xa0' found="" ext
-  ext="$(shopt -p extglob)"
-  shopt -s extglob
-  screen="$(wbrh_capture_pane "$1")" || screen=""
-  while IFS= read -r line; do
-    plain="${line//$'\e'\[*([0-9;])m/}"
-    [[ "$plain" == "$prompt"* ]] && found="$line"
-  done <<<"$screen"
-  eval "$ext"
-  WBRH_INPUT=none
-  [ -n "$found" ] || return 0
-  rest="${found#*"$prompt"}"
-  rest="${rest//$'\e'\[[039]m/}"
-  rest="${rest//$'\e'\[49m/}"
-  rest="${rest//$'\e'\[m/}"
-  while [[ "$rest" == *[[:space:]] ]]; do rest="${rest%?}"; done
-  WBRH_INPUT=text
-  [ -n "$rest" ] && [[ "$rest" != $'\e[2m'* ]]
-}
-
-# Copied from wb-continue-hook.sh's wbch_settle: wait until @claude_working has
-# been empty for the whole settle time; false when it stays set, or is set
-# again, past the overall limit.
-wbrh_settle() {
-  local need="${WB_REVIEW_SETTLE_MS:-1500}" max="${WB_REVIEW_SETTLE_MAX_MS:-5000}"
-  local t0 now clear_since="" working
-  t0="${EPOCHREALTIME/./}"
-  while :; do
-    now="${EPOCHREALTIME/./}"
-    working="$(tmux show -pv -t "$1" @claude_working 2>/dev/null)"
-    if [ -n "$working" ]; then
-      clear_since=""
-    else
-      [ -n "$clear_since" ] || clear_since="$now"
-      [ $(((now - clear_since) / 1000)) -ge "$need" ] && return 0
-    fi
-    [ $(((now - t0) / 1000)) -ge "$max" ] && return 1
-    sleep 0.1
-  done
-}
 
 # wbrh_find_pane <stem> — sets WBRH_PANE to the Claude pane of the tmux session
 # whose @task names this stem (KTD7); false when there is none.
@@ -338,13 +417,15 @@ wbrh_deliver() {
     wbrh_status "$stem" "review delivery is switched off"
     return 0
   fi
-  # shellcheck source=lib.sh
-  source "$WBRH_DIR/lib.sh" || return 0
   if ! wbrh_find_pane "$stem"; then
     wbrh_status "$stem" "no Claude running for this task"
-    return 0
+    return 3
   fi
   pane="$WBRH_PANE"
+  if wbrh_held "$stem"; then
+    wbrh_status "$stem" "held: the session asked you something"
+    return 0
+  fi
   if [ -e "$WBRH_Q/$stem/queue/inflight" ]; then
     if wbrh_inflight_live "$WBRH_Q/$stem/queue/inflight"; then
       wbrh_status "$stem" "a review hand-over is still being worked on"
@@ -355,7 +436,7 @@ wbrh_deliver() {
   fi
   info="$(tmux display-message -p -t "$pane" '#{@claude_working}|#{pane_in_mode}' 2>/dev/null)" || info=""
   IFS='|' read -r working mode <<<"$info"
-  if [ -n "$working" ] || ! wbrh_settle "$pane"; then
+  if [ -n "$working" ] || ! tmux_settle "$pane" "${WB_REVIEW_SETTLE_MS:-1500}" "${WB_REVIEW_SETTLE_MAX_MS:-5000}"; then
     wbrh_status "$stem" "waiting for the turn to end"
     return 0
   fi
@@ -365,8 +446,8 @@ wbrh_deliver() {
     wbrh_status "$stem" "the pane is in copy mode"
     return 0
   fi
-  if wbrh_input_pending "$pane"; then
-    if [ "$WBRH_INPUT" = text ]; then
+  if tmux_input_pending "$pane"; then
+    if [ "$TMUX_INPUT" = text ]; then
       wbrh_status "$stem" "text on the input line"
     else
       wbrh_status "$stem" "a permission question is on screen"
@@ -384,6 +465,10 @@ wbrh_deliver() {
 
 case "$WBRH_VERB" in
   hook-stop | hook-session-start | hook-stop-failure) wbrh_hook ;;
-  deliver) wbrh_deliver "$2" ;;
+  hook-prompt) wbrh_prompt ;;
+  deliver)
+    wbrh_deliver "$2"
+    [ "$?" = 3 ] && exit 3
+    ;;
 esac
 exit 0

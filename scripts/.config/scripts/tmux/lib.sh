@@ -192,3 +192,95 @@ tmux_session_agent_state() {
     echo unknown
   fi
 }
+
+# tmux_capture_pane <pane> — the pane's current screen, colours kept. A seam
+# for tests of tmux_input_pending.
+tmux_capture_pane() { tmux capture-pane -ep -t "$1" 2>/dev/null; }
+
+# tmux_input_pending <pane> — true when text is on Claude's input line or no
+# input line is on screen (a dialog, a menu, an unreadable screen: fail closed);
+# TMUX_INPUT says which, "text" or "none". False only when the input line is
+# empty. The input line is the last line that starts with the prompt glyph
+# followed by a no-break space (transcript lines use a plain space). An empty
+# line is blank or shows a dim placeholder; typed text is not dim.
+# shellcheck disable=SC2034 # TMUX_INPUT is read by the callers
+tmux_input_pending() {
+  local screen line plain rest prompt=$'\xe2\x9d\xaf\xc2\xa0' found="" ext
+  ext="$(shopt -p extglob)"
+  shopt -s extglob
+  screen="$(tmux_capture_pane "$1")" || screen=""
+  while IFS= read -r line; do
+    plain="${line//$'\e'\[*([0-9;])m/}"
+    [[ "$plain" == "$prompt"* ]] && found="$line"
+  done <<<"$screen"
+  eval "$ext"
+  TMUX_INPUT=none
+  [ -n "$found" ] || return 0
+  rest="${found#*"$prompt"}"
+  rest="${rest//$'\e'\[[039]m/}"
+  rest="${rest//$'\e'\[49m/}"
+  rest="${rest//$'\e'\[m/}"
+  while [[ "$rest" == *[[:space:]] ]]; do rest="${rest%?}"; done
+  TMUX_INPUT=text
+  [ -n "$rest" ] && [[ "$rest" != $'\e[2m'* ]]
+}
+
+# tmux_settle <pane> <need_ms> <max_ms> — wait until @claude_working has been
+# empty for the whole settle time (the notify hook clears it on Stop, alongside
+# the caller's own hook); false when it stays set, or is set again, past the
+# overall limit.
+tmux_settle() {
+  local need="$2" max="$3" t0 now clear_since="" working
+  t0="${EPOCHREALTIME/./}"
+  while :; do
+    now="${EPOCHREALTIME/./}"
+    working="$(tmux show -pv -t "$1" @claude_working 2>/dev/null)"
+    if [ -n "$working" ]; then
+      clear_since=""
+    else
+      [ -n "$clear_since" ] || clear_since="$now"
+      [ $(((now - clear_since) / 1000)) -ge "$need" ] && return 0
+    fi
+    [ $(((now - t0) / 1000)) -ge "$max" ] && return 1
+    sleep 0.1
+  done
+}
+
+# The two rules below mirror claude-notify-hook.sh (its lock, its agent marker
+# lifetime and its "done" rule); keep them in step with it.
+CLAUDE_DONE_MIN_SECS=30     # claude-notify-hook.sh's DONE_MIN_SECS
+CLAUDE_AGENT_TTL_SECS=7200  # claude-notify-hook.sh's AGENT_TTL_SECS
+
+# claude_pane_lock <pane> — take claude-notify-hook.sh's per-pane lock on fd 9
+# for the rest of the calling shell (run it in a subshell to scope it). Best
+# effort, as there: without flock, or after 2 s, carry on.
+claude_pane_lock() {
+  local lock="${XDG_RUNTIME_DIR:-/tmp}/claude-notify-hook-${1#%}.lock"
+  if command -v flock >/dev/null 2>&1 && exec 9>>"$lock" 2>/dev/null; then
+    flock -w 2 9 2>/dev/null || true
+  fi
+}
+
+# claude_pane_live <pane> — a turn is running on the pane or a subagent marker
+# is fresh (what claude-notify-hook.sh's sync_working and agents_live derive).
+claude_pane_live() {
+  local name val
+  [ -n "$(tmux show -pv -t "$1" @claude_turn 2>/dev/null)" ] && return 0
+  while read -r name val; do
+    case "$name" in @claude_agent_*) ;; *) continue ;; esac
+    [[ "$val" =~ ^[0-9]+$ ]] && ((EPOCHSECONDS - val < CLAUDE_AGENT_TTL_SECS)) && return 0
+  done < <(tmux show -p -t "$1" 2>/dev/null)
+  return 1
+}
+
+# claude_pane_flag_done <pane> — claude-notify-hook.sh's "done" rule: with
+# nothing live, a turn that started at least CLAUDE_DONE_MIN_SECS ago lights
+# @claude_blocked done.
+claude_pane_flag_done() {
+  local s
+  claude_pane_live "$1" && return 0
+  s="$(tmux show -pv -t "$1" @claude_started 2>/dev/null)"
+  [[ "$s" =~ ^[0-9]+$ ]] && ((EPOCHSECONDS - s >= CLAUDE_DONE_MIN_SECS)) || return 0
+  tmux set -p -t "$1" @claude_blocked "done" 2>/dev/null
+  return 0
+}
