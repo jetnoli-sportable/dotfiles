@@ -1108,6 +1108,18 @@ assert_eq "U3 idempotent re-apply: store byte-identical" "$snapshot_before" "$sn
 handoff_count_2="$(grep -c '^### .* — wb breakdown (auto)$' "$TASKS_DIR/proj--feat-u3.md")"
 assert_eq "U3 idempotent re-apply: handoff NOT duplicated" 1 "$handoff_count_2"
 
+# --- worktrees: moves to the continuing child with branch:/worktree: (R15) ---
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u6x ".worktrees/feat-u6x" >/dev/null 2>&1
+mk_u3_parent proj--feat-u6x feat-u6x .worktrees/feat-u6x
+wb_set_frontmatter_field "$TASKS_DIR/proj--feat-u6x.md" worktrees "other/.worktrees/feat-u6x" worktree
+u3_buffer | sed 's/feat-u3/feat-u6x/g' > "$U3_BUF/family-u6x.md"
+cmd_breakdown --apply "$U3_BUF/family-u6x.md" >/dev/null 2>&1; rc_u6x=$?
+assert_eq "U6 apply with an extra worktree: exits 0" 0 "$rc_u6x"
+assert_eq "U6: continuing child inherits worktrees:" "other/.worktrees/feat-u6x" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u6x-one.md" worktrees)"
+assert_eq "U6: parent's worktrees: blanked" "" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u6x.md" worktrees)"
+assert_eq "U6: the non-continuing child gets none" "" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u6x-two.md" worktrees)"
+assert_eq "U6: a parent with no worktrees: line gains none (feat-u3 stays as it was)" 0 "$(grep -c '^worktrees:' "$TASKS_DIR/proj--feat-u3.md")"
+
 # --- size: / depends_on: end-to-end (size-depends-capture U4) --------------
 # Child 1 depends on child 2 (seeded LATER in the same apply — order-
 # independence, no existence check); child 2 depends on child 1 via a

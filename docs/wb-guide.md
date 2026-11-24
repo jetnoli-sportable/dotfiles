@@ -202,6 +202,41 @@ as a `- size:` bullet.
 reasonable working ceiling on this machine, `wb new` doesn't start one for
 you unless you ask.
 
+### A task that spans repos: `wb worktree add`
+
+```
+$ wb worktree add <repo> [<task>]      # no task = the current session's
+```
+
+Some tasks change two repos, for example a wb-store PR for the review page
+and a dotfiles PR for `wb` itself. `wb new` makes the task's primary
+worktree, the one named by `repo:` and `worktree:`. `wb worktree add` gives
+the task a second worktree in `<repo>`:
+
+- **Where:** `~/code/<repo>/.worktrees/<name>`, with the primary's worktree
+  name, on the task's `branch:` (cut from the repo's default branch when it
+  doesn't exist there yet).
+- **Ready to run:** it gets the same gitignored bootstrap files and family
+  `CLAUDE.local.md` that `wb new` gives a primary.
+- **Recorded:** it is added to the task file's `worktrees:` field, for
+  example `worktrees: wb-store/.worktrees/wb-review-multi-repo`. That field
+  holds one entry per repo and never one in the primary's repo.
+- **Safe to re-run:** a worktree already at that path on the task's branch is
+  adopted, not made again, and a listed one isn't listed twice. The worktree
+  is created first and recorded last, so a run that fails in between leaves
+  a worktree that the next run adopts.
+- **Refused:** the primary's own repo, a folder that isn't a git repo, the
+  task's branch checked out somewhere else in `<repo>` (it names where),
+  and anything at the target path that isn't that branch's worktree.
+
+What reads `worktrees:`: the review page (one tab per repo), the turn
+snapshot (Last turn in every tab), `wb done` (checks and removes every
+worktree), `wb review` (opens when any worktree is on disk), and
+`wb reconcile` and the board (a listed worktree is the task's, not an
+orphan). `wb breakdown --apply` moves the field to the continuing child.
+The picker, `wb continue`, the session layout and `wb resume` stay on the
+primary; recreating extra worktrees on `wb resume` is a follow-up.
+
 ## The picker
 
 Press <kbd>prefix</kbd>+<kbd>m</kbd> or <kbd>prefix</kbd>+<kbd>a</kbd> (both
@@ -534,6 +569,18 @@ time:
    open, and both the printed line and the Handoffs entry say "session left
    open".
 
+**A task with extra worktrees** (the `worktrees:` field, from
+[`wb worktree add`](#a-task-that-spans-repos-wb-worktree-add)) gets steps 1,
+3 and 4 for every worktree on disk, before anything changes: one dirty tree
+or unknown entry in any of them stops the run with nothing kept or removed.
+An extra's keepers go to `dossiers/<repo>--<slug>/<extra-repo>/`, and a
+`--keep` or `--throwaway` path inside an extra is written
+`<extra-repo>:<path>` (a path with no prefix is the primary's). Step 6
+removes the extras first, then the primary, and the Handoffs entry lists
+every worktree removed. An extra already missing from disk is skipped with
+a note, so re-running after a half-finished close finishes it. `worktrees:`
+stays in the file, as `worktree:` does.
+
 **`--review`** is the one way to get an editor. It sorts the files first (so an
 unknown stops the run before you spend time reviewing), opens the task file in
 a split and waits for you to close it, checks again for uncommitted changes,
@@ -700,6 +747,9 @@ path:                 # optional: ideate,brainstorm,plan,work,review subset;
 repo: dotfiles
 branch: feat/onboarding
 worktree: .worktrees/feat/onboarding
+worktrees:            # optional: worktrees in other repos, comma-separated
+                      # <repo>/.worktrees/<name>; written by
+                      # `wb worktree add`, never by hand or `wb set`
 parent:               # optional: <repo>--<slug> of a parent task
 depends_on:           # optional: comma-separated blocking task stems
 tags: []
@@ -993,7 +1043,8 @@ printing its URL, `wb page` says so at once and shows the log's last lines.
 `wb-store review`: the task's changes against the merge-base with the repo's
 default branch, laid out like GitHub's "Files changed" tab, with viewed ticks
 and line comments sent back to the task's session as one review. `wb review
-<task>` opens another task's page. A task with no worktree on disk is refused.
+<task>` opens another task's page. A task with no worktree on disk is refused;
+one whose primary is gone but an extra worktree is still there opens.
 
 | Key | Opens |
 |---|---|
@@ -1031,6 +1082,29 @@ A review you send while the agent is mid-turn is **held** when that turn ends
 with a closing `**Needs you:**` question, so it doesn't bury the question. The
 page shows the question with a **Deliver now** button. A prompt you type, or a
 review you send after the question, releases the hold.
+
+**A task with extra worktrees** (`worktrees:`, from
+[`wb worktree add`](#a-task-that-spans-repos-wb-worktree-add)) gets a tab per
+repo in the page header, the primary first. Each tab shows its unsent draft
+count and, once loaded in the background, how many of its files you haven't
+ticked viewed. `{` and `}` step to the previous and next tab; `[` and `]`
+still step files.
+
+- **One repo per view.** Every view, search, tick and draft belongs to the
+  selected tab's repo, and the URL carries it (`?repo=<name>`), so a reload
+  or a link keeps the tab. The same path in two repos has a separate tick in
+  each, and a comment shows only on its own repo's file.
+- **Other repos' drafts stay in the rail,** labelled with their repo;
+  clicking one opens its tab at that file.
+- **One Send for all repos.** Send takes every unsent draft of every repo.
+  When any comment is outside the primary, the review record puts the note
+  first, then a section per repo headed with its name and worktree path;
+  otherwise the record is the single-repo one.
+- **Last turn per repo.** The turn snapshot records every worktree of the
+  task, so each tab's Last turn shows what the last turn changed in that
+  repo. A repo the turn didn't touch keeps its earlier turn.
+- **Missing worktrees.** A tab whose worktree is gone says so. When the
+  primary is gone, the page opens on the first repo that's still there.
 
 Vimium users: add the exclusion rule `http://127.0.0.1:*/t/*`, with no pass
 keys, so the page's own keys reach it.

@@ -27,7 +27,11 @@
 #                                    into keep (copied to the task's dossier) / throwaway (deleted with it) /
 #                                    unknown (stops the run before anything changes); --keep/--throwaway <path>
 #                                    (repeatable) classify one entry for this run; --review opens the task file
-#                                    in an editor first (no buffer otherwise)
+#                                    in an editor first (no buffer otherwise). Extra worktrees (worktrees:, from
+#                                    `wb worktree add`) are checked and sorted the same way before anything
+#                                    changes, their keepers kept under the dossier's <repo>/, and removed before
+#                                    the primary; a path in one is written <repo>:<path>; one already gone is
+#                                    skipped with a note
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
 #   wb restart [--dry-run] <list-file>|--crashed
 #                                    bring back many sessions after a crash: `wb resume` each task stem in
@@ -172,8 +176,15 @@
 #   wb review [--no-open] [--task] [<task>]
 #                                    open <task>'s local diff-review page (wb-store review) in an
 #                                    app window, starting its server when none of this build runs;
-#                                    refuses a task with no worktree on disk. With no <task>, the
+#                                    refuses a task with no worktree on disk (an extra worktree
+#                                    from `wb worktree add` counts). With no <task>, the
 #                                    current tmux session's @task
+#   wb worktree add <repo> [<task>]  give <task> (default: the current session's) a worktree in
+#                                    <repo> on the task's branch, named like the primary's, with
+#                                    bootstrap files and the family CLAUDE.local.md, and record it
+#                                    in its worktrees: field; adopts one already there on the
+#                                    branch, refuses the primary's repo or a branch checked out
+#                                    elsewhere
 #   wb page [--no-open] [--task|--family] [<task>] | wb page [--no-open] --index
 #                                    open <task>'s page from wb-store's page server: its family
 #                                    page when it has children, else its task page (--task or
@@ -1756,6 +1767,71 @@ _wb_safe_worktree_field() {
   return 0
 }
 
+# _wb_safe_repo_segment <s> — 0 when <s> is one repo-name segment of
+# [A-Za-z0-9._-], not empty, `.` or `..`.
+_wb_safe_repo_segment() {
+  case "$1" in ''|.|..|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  return 0
+}
+
+# _wb_safe_worktrees_entry <entry> — 0 when <entry> is a well-formed
+# `worktrees:` item, `<repo>/.worktrees/<name>`: the repo part is one segment
+# of [A-Za-z0-9._-] (not `.` or `..`), split at the first `/.worktrees/`, and
+# `.worktrees/<name>` passes _wb_safe_worktree_field. The same rule as
+# wb-store's Go validator, so both readers accept the same entries.
+_wb_safe_worktrees_entry() {
+  local entry="$1" repo rest
+  case "$entry" in */.worktrees/?*) ;; *) return 1 ;; esac
+  repo="${entry%%/.worktrees/*}"
+  rest=".worktrees/${entry#*/.worktrees/}"
+  _wb_safe_repo_segment "$repo" || return 1
+  _wb_safe_worktree_field "$rest"
+}
+
+# _wb_worktrees_items <raw> — a raw `worktrees:` value's items, one trimmed
+# non-empty item per line, after dropping a trailing ` # comment`.
+_wb_worktrees_items() {
+  local raw="$1" rest item
+  raw="${raw%%[[:space:]]#*}"
+  rest="$raw,"
+  while [ -n "$rest" ]; do
+    item="${rest%%,*}"; rest="${rest#*,}"
+    read -r item <<< "$item"
+    [ -n "$item" ] && printf '%s\n' "$item"
+  done
+  return 0
+}
+
+# _wb_filter_worktrees <task_file> <raw> <primary> [quiet] — the valid entries
+# of an already-read `worktrees:` value, one `<repo>/.worktrees/<name>` per
+# line. An entry that is malformed, repeats a repo, or names the primary's
+# repo is skipped with a note on stderr (none when the fourth argument is
+# `quiet`, for scans over every task file).
+_wb_filter_worktrees() {
+  local file="$1" raw="$2" primary="$3" quiet="${4:-}" item key
+  read -r primary <<< "$primary"
+  local -A seen=()
+  while IFS= read -r item; do
+    key="${item%%/*}"
+    if ! _wb_safe_worktrees_entry "$item" || [ "$key" = "$primary" ] || [ -n "${seen[$key]:-}" ]; then
+      [ "$quiet" = quiet ] || echo "wb: skipping worktrees: entry '$item' in $(basename -- "$file") (malformed, repeated repo, or the primary's repo)" >&2
+      continue
+    fi
+    seen[$key]=1
+    printf '%s\n' "$item"
+  done < <(_wb_worktrees_items "$raw")
+}
+
+# _wb_task_worktrees <task_file> [quiet] — a task's valid `worktrees:`
+# entries; reads the file, then _wb_filter_worktrees.
+_wb_task_worktrees() {
+  local file="$1" quiet="${2:-}" raw primary
+  raw="$(wb_get_frontmatter "$file" worktrees)"
+  [[ "${raw%%[[:space:]]#*}" == *[![:space:]]* ]] || return 0
+  primary="$(wb_get_frontmatter "$file" repo)"
+  _wb_filter_worktrees "$file" "$raw" "$primary" "$quiet"
+}
+
 # _wb_task_wt_slug <task_file> <repo> — the worktree slug a resume of this task
 # uses (cmd_new's override path): worktree: without `.worktrees/` when
 # _wb_safe_worktree_field accepts it, else the stem's own slug. The session is
@@ -2654,14 +2730,35 @@ wb_branch_has_open_pr() {
 #   - orphaned worktree: a real git worktree with no task file pointing at it
 #   - missing worktree: a task file's worktree: field points nowhere
 # wb_worktree_has_task <repo> <rel_worktree> — true if some task file's
-# repo:/worktree: pair matches exactly. Shared by cmd_reconcile's orphan
+# repo:/worktree: pair matches exactly, or one of its valid worktrees: entries
+# is <repo>/<rel_worktree>. Shared by cmd_reconcile's orphan
 # detection and /board's untracked-worktree rows (U4) — same question,
 # asked from two call sites, must never drift out of sync.
 wb_worktree_has_task() {
-  local repo="$1" rel="$2" tf
+  local repo="$1" rel="$2" tf kind val e
+  local t_repo t_wt t_wts
   while IFS= read -r tf; do
-    [ "$(wb_get_frontmatter "$tf" repo)" = "$repo" ] || continue
-    [ "$(wb_get_frontmatter "$tf" worktree)" = "$rel" ] && return 0
+    t_repo="" t_wt="" t_wts=""
+    # repo:, worktree: and worktrees: in one pass, read as
+    # wb_get_frontmatter_text does (first match of each key wins)
+    while IFS= read -r kind && IFS= read -r val; do
+      case "$kind" in r) t_repo="$val" ;; w) t_wt="$val" ;; x) t_wts="$val" ;; esac
+    done < <(awk '
+      NR == 1 && $0 != "---" { exit }
+      /^---$/ { infm++; if (infm == 2) exit; next }
+      infm == 1 {
+        if (!r && $0 ~ "^repo:") { r = 1; sub("^repo:[ \t]*", ""); print "r"; print; next }
+        if (!w && $0 ~ "^worktree:") { w = 1; sub("^worktree:[ \t]*", ""); print "w"; print; next }
+        if (!x && $0 ~ "^worktrees:") { x = 1; sub("^worktrees:[ \t]*", ""); print "x"; print }
+      }
+    ' "$tf")
+    if [ "$t_repo" = "$repo" ] && [ "$t_wt" = "$rel" ]; then
+      return 0
+    fi
+    [[ "$t_wts" == *[![:space:]]* ]] || continue
+    while IFS= read -r e; do
+      [ "$e" = "$repo/$rel" ] && return 0
+    done < <(_wb_filter_worktrees "$tf" "$t_wts" "$t_repo" quiet)
   done < <(wb_task_files)
   return 1
 }
@@ -3781,7 +3878,7 @@ _wb_breakdown_execute() {
   local parent_repo; parent_repo="$(wb_get_frontmatter "$parent_file" repo)"
   local did_something=0 migration_target_file=""
   local -a created_children=()
-  local line
+  local line p_worktrees
 
   # 1. seed checked children -------------------------------------------------
   #    Pre-pass: every create row's resolved stem, so a depends_on: naming a
@@ -3862,9 +3959,12 @@ _wb_breakdown_execute() {
     p_worktree="$(wb_get_frontmatter "$parent_file" worktree)"
     wb_set_frontmatter "$target_file" branch "$p_branch"
     wb_set_frontmatter "$target_file" worktree "$p_worktree"
+    p_worktrees="$(wb_get_frontmatter "$parent_file" worktrees)"
+    [ -z "$p_worktrees" ] || wb_set_frontmatter "$target_file" worktrees "$p_worktrees"
     [ "$(wb_get_frontmatter "$target_file" status)" != planned ] || wb_set_frontmatter "$target_file" status doing
     wb_set_frontmatter "$parent_file" branch ""
     wb_set_frontmatter "$parent_file" worktree ""
+    [ -z "$p_worktrees" ] || wb_set_frontmatter "$parent_file" worktrees ""
     migration_target_file="$target_file"
     did_something=1
   done <<< "$actions"
@@ -5581,7 +5681,7 @@ cmd_set() {
       echo "wb set: 'status' is not settable via \`wb set\` — use \`wb status\`/\`wb done\` instead" >&2
       exit 1
       ;;
-    created|closed|reviewed|claude_sessions|repo|worktree)
+    created|closed|reviewed|claude_sessions|repo|worktree|worktrees)
       echo "wb set: '$field' is not settable via \`wb set\` (tooling-owned field)" >&2
       exit 1
       ;;
@@ -6453,14 +6553,16 @@ _wb_done_join() {
   printf '%s' "$out"
 }
 
-# _wb_done_print_unknowns <worktree> <unknown>... — print the stop message's
-# `  unknown: <path> — <note>` lines, at most 10 per top-level entry git
-# reported (an ignored directory such as `.next/` is opened one level at a
-# time and can yield hundreds), then one line saying how many more there were
-# and how to dispose of the whole entry. Paths are shown escaped
-# (_wb_sweep_esc). Few unknowns are all printed, with no extra git call.
+# _wb_done_print_unknowns <worktree> <prefix> <unknown>... — print the stop
+# message's `  unknown: <prefix><path> — <note>` lines, at most 10 per
+# top-level entry git reported (an ignored directory such as `.next/` is
+# opened one level at a time and can yield hundreds), then one line saying how
+# many more there were and how to dispose of the whole entry. Paths are shown
+# escaped (_wb_sweep_esc). Few unknowns are all printed, with no extra git
+# call. <prefix> is `<repo>:` for an extra worktree, the form its --keep and
+# --throwaway paths take, and empty for the primary.
 _wb_done_print_unknowns() {
-  local wt="$1" u path e key i; shift
+  local wt="$1" pfx="$2" u path e key i; shift 2
   local -a entries=() keys=()
   local -A total=() shown=()
   if [ "$#" -gt 10 ]; then
@@ -6483,22 +6585,23 @@ _wb_done_print_unknowns() {
       shown["$key"]=$(( ${shown["$key"]:-0} + 1 ))
       if [ "${shown["$key"]}" -gt 10 ]; then
         [ "${shown["$key"]}" -eq "${total["$key"]}" ] || continue
-        echo "  … and $(( ${total["$key"]} - 10 )) more under $(_wb_sweep_esc "$key") (add \`throwaway:$(_wb_sweep_esc "$key")\` to wb-done-sweep.list or re-run with --throwaway $(_wb_sweep_esc "${key%/}"))"
+        echo "  … and $(( ${total["$key"]} - 10 )) more under $pfx$(_wb_sweep_esc "$key") (add \`throwaway:$(_wb_sweep_esc "$key")\` to wb-done-sweep.list or re-run with --throwaway $pfx$(_wb_sweep_esc "${key%/}"))"
         continue
       fi
     fi
-    echo "  unknown: $(_wb_sweep_esc "$u")"
+    echo "  unknown: $pfx$(_wb_sweep_esc "$u")"
   done
 }
 
-# _wb_done_classify <quiet> <worktree> <main> [--keep p|--throwaway p]... —
+# _wb_done_classify <quiet> <worktree> <main> <prefix> [--keep p|--throwaway p]... —
 # run wb_sweep_classify and fill the caller's keep_paths / throw_paths (bash
 # dynamic scope; entries keep the classifier's trailing `/` on a directory).
 # Any unknown prints the stop message on stderr and returns 1, with nothing
 # changed. <quiet> 1 hides the classifier's own warnings (a second pass would
-# only repeat them).
+# only repeat them). <prefix> goes in front of each path the stop message
+# names (_wb_done_print_unknowns).
 _wb_done_classify() {
-  local quiet="$1" wt="$2" main="$3"; shift 3
+  local quiet="$1" wt="$2" main="$3" pfx="$4"; shift 4
   local out rc=0 cls path note
   local -a unknowns=()
   keep_paths=(); throw_paths=()
@@ -6525,12 +6628,60 @@ _wb_done_classify() {
   if [ "${#unknowns[@]}" -gt 0 ]; then
     {
       echo "wb done: ${#unknowns[@]} gitignored entr$([ "${#unknowns[@]}" = 1 ] && echo y || echo ies) in $wt can't be sorted, so nothing was changed:"
-      _wb_done_print_unknowns "$wt" "${unknowns[@]}"
-      echo "wb done: add each to wb-done-sweep.list (keep: or throwaway:) beside wb.sh, or re-run with --keep <path> (copies it into the task's dossier) or --throwaway <path> (deletes it with the worktree)"
+      _wb_done_print_unknowns "$wt" "$pfx" "${unknowns[@]}"
+      echo "wb done: add each to wb-done-sweep.list (keep: or throwaway:) beside wb.sh, or re-run with --keep $pfx<path> (copies it into the task's dossier) or --throwaway $pfx<path> (deletes it with the worktree)"
     } >&2
     return 1
   fi
   return 0
+}
+
+# _wb_done_classify_wt <quiet> <repo> <extra repos> <worktree> <main> [--keep p|--throwaway p]...
+# — classify one worktree of the task and copy its lists out of the globals
+# _wb_done_classify refills, into the caller's done_keep[<worktree>] /
+# done_throw[<worktree>] (newline-joined: the classifier refuses names with
+# line breaks). <repo> is empty for the primary, else the extra's repo, and
+# <extra repos> the task's extra repos, space-separated. A flag path written
+# `<repo>:<path>` with <repo> one of those belongs to that extra; any other
+# path belongs to the primary. Each worktree gets only its own flags.
+_wb_done_classify_wt() {
+  local quiet="$1" repo="$2" repos="$3" wt="$4" main="$5"; shift 5
+  local flag p r
+  local -a own=()
+  while [ $# -ge 2 ]; do
+    flag="$1"; p="$2"; shift 2
+    r=""
+    if [[ $p == *:* ]]; then
+      r="${p%%:*}"
+      [[ " $repos " == *" $r "* ]] || r=""
+    fi
+    if [ -n "$r" ]; then
+      [ "$r" != "$repo" ] || own+=("$flag" "${p#*:}")
+    elif [ -z "$repo" ]; then
+      own+=("$flag" "$p")
+    fi
+  done
+  _wb_done_classify "$quiet" "$wt" "$main" "${repo:+$repo:}" ${own[@]+"${own[@]}"} || return 1
+  local IFS=$'\n'
+  done_keep["$wt"]="${keep_paths[*]}"
+  done_throw["$wt"]="${throw_paths[*]}"
+  return 0
+}
+
+# _wb_done_registered_guard <repo dir> <worktree> — a folder git no longer
+# lists as a worktree (a `git worktree remove` that half-failed, say on
+# root-owned files, can drop git's record yet leave the folder) can't be
+# sorted or removed the normal way; say so and exit 1, before the dirty check
+# would read the enclosing repo's status instead.
+_wb_done_registered_guard() {
+  local repo_dir="$1" wt="$2" wt_list wt_real
+  if wt_list="$(git -C "$repo_dir" worktree list --porcelain 2>/dev/null)"; then
+    wt_real="$(realpath -m -- "$wt")"
+    if ! printf '%s\n' "$wt_list" | grep -qxF -e "worktree $wt" -e "worktree $wt_real"; then
+      echo "wb done: $wt is no longer a git worktree (a removal half-failed?); check what's left in it, delete it by hand, then run git worktree prune and re-run" >&2
+      exit 1
+    fi
+  fi
 }
 
 # _wb_done_leaf_state <src> <dest> — compare one non-directory entry with its
@@ -6670,23 +6821,22 @@ _wb_done_keep_rollback() {
   return 0
 }
 
-# _wb_done_keep_all <worktree> <dossier> [<keep path>]... — copy every keeper
-# into <dossier>/<path> with cp -a (never -L: symlinks are copied as links,
-# not followed). Checks every destination first: a differing file already
-# there stops everything with nothing written. Identical ones are skipped but
-# still count as kept. The classifier has already refused any credential-shaped
-# keeper, so a directory copy needs no per-file filter.
-_wb_done_keep_all() {
+# _wb_done_keep_check <worktree> <dossier> [<keep path>]... — check every
+# keeper's destination in <dossier>: a differing file already there prints the
+# stop message and returns 1. Fills _wb_keep_todo with the keepers still to
+# copy (identical ones are skipped). cmd_done runs it over every worktree of
+# the task before the first copy, so a collision in an extra stops the run
+# before the primary's keepers are written.
+_wb_done_keep_check() {
   local wt="$1" dossier="$2"; shift 2
-  [ "$#" -gt 0 ] || return 0
+  _wb_keep_todo=()
   local kp rel c st line bad=""
-  local -a todo=()
   for kp in "$@"; do
     rel="${kp%/}"
     st=0; c="$(_wb_done_keep_state "$wt" "$dossier" "$rel")" || st=$?
     case "$st" in
       1) while IFS= read -r line; do bad+="${bad:+$'\n'}  collides: $dossier/$line"; done <<<"$c" ;;
-      0) todo+=("$rel") ;;
+      0) _wb_keep_todo+=("$rel") ;;
     esac
   done
   if [ -n "$bad" ]; then
@@ -6697,6 +6847,23 @@ _wb_done_keep_all() {
     } >&2
     return 1
   fi
+  return 0
+}
+
+# _wb_done_keep_all <worktree> <dossier> [<keep path>]... — copy every keeper
+# into <dossier>/<path> with cp -a (never -L: symlinks are copied as links,
+# not followed). Checks every destination first (_wb_done_keep_check): a
+# differing file already there stops everything with nothing written.
+# Identical ones are skipped but still count as kept. The classifier has
+# already refused any credential-shaped keeper, so a directory copy needs no
+# per-file filter.
+_wb_done_keep_all() {
+  local wt="$1" dossier="$2"; shift 2
+  [ "$#" -gt 0 ] || return 0
+  local rel
+  local -a _wb_keep_todo=()
+  _wb_done_keep_check "$wt" "$dossier" "$@" || return 1
+  local -a todo=(${_wb_keep_todo[@]+"${_wb_keep_todo[@]}"})
   # Track what THIS run creates, so a failed copy can take it back: the topmost
   # path that was absent before each keeper's copy (a single file, a new
   # directory, or a missing parent chain). Nothing that existed before the run
@@ -6820,6 +6987,14 @@ cmd_done() {
   fi
 
   local repo_dir worktree_path
+  # Every worktree to sort, keep from and remove (KTD10): the primary first
+  # when it is on disk, then each extra (worktrees:) on disk. wt_keys holds ""
+  # for the primary and the repo for an extra; wt_names the CODE_DIR-relative
+  # path the handoff names. ex_gone lists extras already missing, skipped with
+  # a note so a retry after a half-finished run works; an invalid entry is
+  # noted by _wb_task_worktrees and never touched.
+  local -a wt_paths=() wt_keys=() wt_names=() ex_gone=() wt_removed=()
+  local ex_repos="" e i primary_on_disk=0
   if [ "$store_only" = 0 ]; then
     # worktree_rel/slug derived from the TASK FILE's own frontmatter, never
     # from @wb_repo/@wb_slug directly — a migrated child's worktree:/branch:
@@ -6842,49 +7017,59 @@ cmd_done() {
       exit 1
     fi
 
-    # A folder git no longer lists as a worktree (a `git worktree remove` that
-    # half-failed, say on root-owned files, can drop git's record yet leave the
-    # folder) can't be sorted or removed the normal way; say so, before the
-    # dirty check would read the enclosing repo's status instead.
     if [ -d "$worktree_path" ]; then
-      local wt_list wt_real
-      if wt_list="$(git -C "$repo_dir" worktree list --porcelain 2>/dev/null)"; then
-        wt_real="$(realpath -m -- "$worktree_path")"
-        if ! printf '%s\n' "$wt_list" | grep -qxF -e "worktree $worktree_path" -e "worktree $wt_real"; then
-          echo "wb done: $worktree_path is no longer a git worktree (a removal half-failed?); check what's left in it, delete it by hand, then run git worktree prune and re-run" >&2
-          exit 1
-        fi
-      fi
+      _wb_done_registered_guard "$repo_dir" "$worktree_path"
+      wt_paths+=("$worktree_path"); wt_keys+=(""); wt_names+=("$repo/$worktree_rel")
+      primary_on_disk=1
     fi
+    while IFS= read -r e; do
+      ex_repos+="${ex_repos:+ }${e%%/*}"
+      if [ -d "$CODE_DIR/$e" ]; then
+        _wb_done_registered_guard "$CODE_DIR/${e%%/*}" "$CODE_DIR/$e"
+        wt_paths+=("$CODE_DIR/$e"); wt_keys+=("${e%%/*}"); wt_names+=("$e")
+      else
+        ex_gone+=("$e")
+      fi
+    done < <(_wb_task_worktrees "$task_file")
 
     # 1. fail fast — never mutate anything on a dirty tree.
-    _wb_git_dirty_guard "$worktree_path" "wb done"
+    for e in ${wt_paths[@]+"${wt_paths[@]}"}; do _wb_git_dirty_guard "$e" "wb done"; done
+    for e in ${ex_gone[@]+"${ex_gone[@]}"}; do echo "wb done: $e is not on disk — skipped"; done
   fi
 
   # Steps 2-4 (sort the gitignored entries, copy the keepers, remove the
   # worktree) are meaningless for a store-only close — a session-less parent
   # never had a worktree to sweep or remove (KTD7: "no sweep, worktree, or
   # session teardown"). Only the shared status/closed/Handoffs burst below
-  # applies to it. keep_paths/throw_paths are filled by _wb_done_classify and
-  # read again by the handoff record below.
-  local -a keep_paths=() throw_paths=()
-  local ny_locked=0
+  # applies to it. keep_paths/throw_paths are filled by _wb_done_classify, and
+  # copied per worktree into done_keep/done_throw by _wb_done_classify_wt;
+  # all_keep/all_throw (an extra's paths written <repo>:<path>) are read again
+  # by the handoff record below.
+  local -a keep_paths=() throw_paths=() all_keep=() all_throw=() wt_kp=() wt_tp=()
+  local -A done_keep=() done_throw=()
+  local ny_locked=0 wt_pfx x
   if [ "$store_only" = 1 ] && [ "${#sweep_flags[@]}" -gt 0 ]; then
     echo "wb done: --keep/--throwaway ignored: a store-only close has no worktree to sort" >&2
   fi
-  if [ "$store_only" = 0 ] && [ -d "$worktree_path" ]; then
-    # 2. classify EVERY gitignored entry before anything changes (KTD1): one
-    # unknown stops the run here. Under --review the first pass runs before the
-    # buffer so an unknown stops the run before Jet spends time in it; the
-    # second runs after it, because the worktree can change while the buffer is
-    # open, and only the second result is acted on.
-    _wb_done_classify 0 "$worktree_path" "$repo_dir" ${sweep_flags[@]+"${sweep_flags[@]}"} || exit 1
+  if [ "${#wt_paths[@]}" -gt 0 ]; then
+    # 2. classify EVERY gitignored entry of every worktree before anything
+    # changes (KTD1): one unknown stops the run here. Under --review the first
+    # pass runs before the buffer so an unknown stops the run before Jet spends
+    # time in it; the second runs after it, because a worktree can change while
+    # the buffer is open, and only the second result is acted on.
+    for i in "${!wt_paths[@]}"; do
+      _wb_done_classify_wt 0 "${wt_keys[i]}" "$ex_repos" "${wt_paths[i]}" "$CODE_DIR/${wt_keys[i]:-$repo}" \
+        ${sweep_flags[@]+"${sweep_flags[@]}"} || exit 1
+    done
     if [ "$review" = 1 ]; then
       wb_open_buffer "$task_file" || exit 1   # no lock held (W5, round-2 Decision 2)
       # An edit to a tracked file made while the buffer was open would be lost
       # to the forced removal below.
-      _wb_git_dirty_guard "$worktree_path" "wb done"
-      _wb_done_classify 1 "$worktree_path" "$repo_dir" ${sweep_flags[@]+"${sweep_flags[@]}"} || exit 1
+      for e in "${wt_paths[@]}"; do _wb_git_dirty_guard "$e" "wb done"; done
+      for i in "${!wt_paths[@]}"; do
+        _wb_done_classify_wt 1 "${wt_keys[i]}" "$ex_repos" "${wt_paths[i]}" "$CODE_DIR/${wt_keys[i]:-$repo}" \
+          ${sweep_flags[@]+"${sweep_flags[@]}"} || exit 1
+      done
     fi
 
     # 3. copy every keeper into the dossier BEFORE the removal (a keeper can sit
@@ -6895,19 +7080,34 @@ cmd_done() {
     # lock exits 75 with nothing touched. It is held to the marker's removal
     # at the end, not across the --review buffer above, which can stay open
     # for minutes and would starve /decide's marker writers.
+    # An extra's keepers go to the dossier's <repo>/ subfolder.
     wb_task_lock_acquire_guarded "needs-you-$task_stem" || exit $?
     ny_locked=1
     local dossier="$TASKS_DIR/dossiers/$task_stem"
-    _wb_done_keep_all "$worktree_path" "$dossier" ${keep_paths[@]+"${keep_paths[@]}"} || exit 1
+    local -a _wb_keep_todo=()
+    for i in "${!wt_paths[@]}"; do
+      [ -n "${done_keep[${wt_paths[i]}]:-}" ] || continue
+      mapfile -t wt_kp <<<"${done_keep[${wt_paths[i]}]}"
+      _wb_done_keep_check "${wt_paths[i]}" "$dossier${wt_keys[i]:+/${wt_keys[i]}}" "${wt_kp[@]}" || exit 1
+    done
+    for i in "${!wt_paths[@]}"; do
+      wt_kp=(); wt_tp=()
+      [ -z "${done_keep[${wt_paths[i]}]:-}" ] || mapfile -t wt_kp <<<"${done_keep[${wt_paths[i]}]}"
+      [ -z "${done_throw[${wt_paths[i]}]:-}" ] || mapfile -t wt_tp <<<"${done_throw[${wt_paths[i]}]}"
+      _wb_done_keep_all "${wt_paths[i]}" "$dossier${wt_keys[i]:+/${wt_keys[i]}}" ${wt_kp[@]+"${wt_kp[@]}"} || exit 1
+      wt_pfx="${wt_keys[i]:+${wt_keys[i]}:}"
+      for x in ${wt_kp[@]+"${wt_kp[@]}"}; do all_keep+=("$wt_pfx$x"); done
+      for x in ${wt_tp[@]+"${wt_tp[@]}"}; do all_throw+=("$wt_pfx$x"); done
+    done
 
-    # 4. remove the worktree BEFORE flipping status:
+    # 4. remove the worktrees BEFORE flipping status, the extras first:
     #    - flipping status to "done" before a possibly-failing removal would
     #      leave the store claiming done while the worktree still exists;
     #      removing first means status only ever reflects a real teardown.
-    #    - this is the only deletion, and the guard above (`[ -d ]`) makes a
-    #      retry safe after a prior run was killed between removal and
-    #      status-set: `git worktree remove` on an already-gone path hard-fails
-    #      under set -e otherwise.
+    #    - this is the only deletion, and only worktrees found on disk above
+    #      are in wt_paths, which makes a retry safe after a prior run was
+    #      killed between removals or before status-set: `git worktree remove`
+    #      on an already-gone path hard-fails under set -e otherwise.
     #    Branch is kept — see logs/decisions/2026-07-06-review-outstanding.md Q2.
     #    The tmux session is deliberately left alive by default — wb done tears
     #    down the worktree, not the window you're sitting in (2026-07-08: "I
@@ -6916,11 +7116,20 @@ cmd_done() {
     # Explicit check: the ctrl-x picker runs cmd_done as `cmd_done ... || rc=$?`
     # inside `$( )`, a context where bash ignores `set -e` — so every step whose
     # failure must stop the run is guarded by hand, not by errexit.
-    git -C "$repo_dir" worktree remove "$worktree_path" --force \
-      || { echo "wb done: could not remove $worktree_path (task left as is)" >&2; exit 1; }
+    for i in "${!wt_paths[@]}"; do
+      [ -n "${wt_keys[i]}" ] || continue
+      git -C "$CODE_DIR/${wt_keys[i]}" worktree remove "${wt_paths[i]}" --force \
+        || { echo "wb done: could not remove ${wt_paths[i]} (task left as is)" >&2; exit 1; }
+      wt_removed+=("${wt_names[i]}")
+    done
+    if [ "$primary_on_disk" = 1 ]; then
+      git -C "$repo_dir" worktree remove "$worktree_path" --force \
+        || { echo "wb done: could not remove $worktree_path (task left as is)" >&2; exit 1; }
+      wt_removed+=("${wt_names[0]}")
+    fi
   elif [ "$review" = 1 ]; then
-    # Store-only close, or a retry after the worktree is already gone: nothing
-    # to sort, but --review still opens the task file once.
+    # Store-only close, or a retry after every worktree is already gone:
+    # nothing to sort, but --review still opens the task file once.
     wb_open_buffer "$task_file" || exit 1
   fi
 
@@ -6973,11 +7182,15 @@ cmd_done() {
   fi
   # R22: which gitignored entries went to the dossier and which were deleted.
   local handoff_msg="$done_note."
-  if [ "${#keep_paths[@]}" -gt 0 ]; then
-    handoff_msg+=$'\n'"kept: $(_wb_done_join "${keep_paths[@]}")"
+  if [ -n "$ex_repos" ]; then
+    [ "${#wt_removed[@]}" -eq 0 ] || handoff_msg+=$'\n'"worktrees removed: $(_wb_done_join "${wt_removed[@]}")"
+    [ "${#ex_gone[@]}" -eq 0 ] || handoff_msg+=$'\n'"worktrees already gone: $(_wb_done_join "${ex_gone[@]}")"
   fi
-  if [ "${#throw_paths[@]}" -gt 0 ]; then
-    handoff_msg+=$'\n'"discarded: $(_wb_done_join "${throw_paths[@]}")"
+  if [ "${#all_keep[@]}" -gt 0 ]; then
+    handoff_msg+=$'\n'"kept: $(_wb_done_join "${all_keep[@]}")"
+  fi
+  if [ "${#all_throw[@]}" -gt 0 ]; then
+    handoff_msg+=$'\n'"discarded: $(_wb_done_join "${all_throw[@]}")"
   fi
   wb_append_handoff "$task_file" "wb done" "$handoff_msg" \
     || { wb_task_lock_release "$task_file"; echo "$lock_fail (handoff not written)" >&2; exit 1; }
@@ -8479,7 +8692,7 @@ _wb_review_open() {
 
 # cmd_review [--no-open] [--task] [<task-ref>] — print and open a task's
 # review page, starting `wb-store review` when no server of the current build
-# answers. A task with no worktree on disk, or an unsafe worktree: value, is refused. Resolution matches
+# answers. A task with no worktree on disk (primary or extra), or an unsafe worktree: value, is refused. Resolution matches
 # cmd_page: a <task-ref> needs no tmux, none (or an empty one, as the
 # prefix+R bind passes for a session without @task) means the session's @task.
 # --task is accepted for the bind's sake and changes nothing.
@@ -8496,14 +8709,21 @@ cmd_review() {
     shift
   done
   if [ $# -gt 1 ]; then echo "$usage" >&2; return 1; fi
-  local file stem repo wt
+  local file stem repo wt on_disk=0 e
   file="$(_wb_resolve_task_arg "${1:-}" "wb review" "$usage")" || return 1
   stem="$(basename "$file" .md)"
   repo="$(wb_get_frontmatter "$file" repo)"
   wt="$(wb_get_frontmatter "$file" worktree)"
   read -r repo <<< "$repo"
   read -r wt <<< "$wt"
-  if [ -z "$repo" ] || [ -z "$wt" ] || ! _wb_safe_worktree_field "$wt" || [ ! -d "$(wb_repo_dir "$repo")/$wt" ]; then
+  if [ -n "$repo" ] && [ -n "$wt" ] && _wb_safe_worktree_field "$wt" && [ -d "$(wb_repo_dir "$repo")/$wt" ]; then
+    on_disk=1
+  else
+    while IFS= read -r e; do
+      if [ -d "$CODE_DIR/$e" ]; then on_disk=1; break; fi
+    done < <(_wb_task_worktrees "$file")
+  fi
+  if [ "$on_disk" = 0 ]; then
     echo "wb review: $stem has no worktree on disk — nothing to review" >&2
     return 1
   fi
@@ -8523,6 +8743,78 @@ cmd_review() {
   local url="http://127.0.0.1:$port/t/$stem"
   printf '%s\n' "$url"
   [ "$no_open" = 1 ] || _wb_review_open "$url"
+}
+
+# cmd_worktree add <repo> [<task-ref>] — give a task a worktree in another
+# repo (KTD2): create or adopt it first, record it in `worktrees:` last, so a
+# failure in between leaves an unlisted worktree that a re-run adopts.
+cmd_worktree() {
+  local usage="usage: wb worktree add <repo> [<task-ref>]"
+  if [ "${1:-}" != add ] || [ $# -lt 2 ] || [ $# -gt 3 ]; then echo "$usage" >&2; return 1; fi
+  local repo="$2" file stem primary_repo wt branch name entry repo_dir path e
+  if ! _wb_safe_repo_segment "$repo"; then
+    echo "wb worktree: '$repo' is not a repo name" >&2; return 1
+  fi
+  file="$(_wb_resolve_task_arg "${3:-}" "wb worktree" "$usage")" || return 1
+  stem="$(basename -- "$file" .md)"
+  primary_repo="$(wb_get_frontmatter "$file" repo)"; read -r primary_repo <<< "$primary_repo"
+  wt="$(wb_get_frontmatter "$file" worktree)"; read -r wt <<< "$wt"
+  branch="$(wb_get_frontmatter "$file" branch)"; read -r branch <<< "$branch"
+  repo_dir="$(wb_repo_dir "$repo")"
+  if [ "$repo" = "$primary_repo" ]; then
+    echo "wb worktree: $repo is $stem's own repo — its worktree is the primary" >&2; return 1
+  fi
+  if [ ! -e "$repo_dir/.git" ]; then
+    echo "wb worktree: $repo_dir is not a git repo" >&2; return 1
+  fi
+  if [ -z "$wt" ] || ! _wb_safe_worktree_field "$wt" || [ -z "$branch" ]; then
+    echo "wb worktree: $stem has no usable worktree:/branch: to copy" >&2; return 1
+  fi
+  name="${wt#.worktrees/}"
+  entry="$repo/.worktrees/$name"
+  while IFS= read -r e; do
+    if [ "${e%%/*}" = "$repo" ] && [ "$e" != "$entry" ]; then
+      echo "wb worktree: $stem already lists $e for $repo — remove that entry first" >&2; return 1
+    fi
+  done < <(_wb_task_worktrees "$file")
+
+  path="$repo_dir/.worktrees/$name"
+  local adopted=0
+  if [ -e "$path" ]; then
+    local real_path reg_branch reg_path
+    real_path="$(cd "$repo_dir" && pwd -P)/.worktrees/$name"
+    while IFS=$'\t' read -r reg_branch reg_path; do
+      if [ "$reg_path" = "$real_path" ] && [ "$reg_branch" = "$branch" ]; then adopted=1; break; fi
+    done < <(wb_repo_worktrees "$(cd "$repo_dir" && pwd -P)")
+    if [ "$adopted" = 0 ]; then
+      echo "wb worktree: $path exists but is not a registered worktree of $repo on branch '$branch' — refusing to use it" >&2
+      return 1
+    fi
+  else
+    _wb_new_add_worktree "$repo_dir" "$repo" "${stem#"${primary_repo}--"}" "$branch" "$path" "$file" "" \
+      || return 1
+  fi
+
+  wb_bootstrap "$repo_dir" "$path" \
+    || { echo "wb worktree: bootstrap of gitignored files into $path failed — re-run to adopt it" >&2; return 1; }
+  wb_ensure_repo_ignore "$path" \
+    || { echo "wb worktree: could not register the ignore rule for $repo_dir — re-run to adopt $path" >&2; return 1; }
+  _wb_seed_concepts_file "$file" "$path" \
+    || { echo "wb worktree: could not write CLAUDE.local.md in $path — re-run to adopt it" >&2; return 1; }
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || return $?
+  local raw cur="" item listed=0
+  raw="$(wb_get_frontmatter "$file" worktrees)"
+  while IFS= read -r item; do
+    [ "$item" != "$entry" ] || listed=1
+    cur="${cur:+$cur, }$item"
+  done < <(_wb_worktrees_items "$raw")
+  if [ "$listed" = 0 ]; then
+    wb_set_frontmatter_field "$file" worktrees "${cur:+$cur, }$entry" worktree
+  fi
+  wb_task_lock_release "$file"
+  echo "wb worktree: $stem worktrees: $entry ($([ "$adopted" = 1 ] && echo adopted || echo created))"
 }
 
 # ---------------------------------------------------------------------------
@@ -9127,6 +9419,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     notes)       shift; cmd_notes "$@" ;;
     page)        shift; cmd_page "$@" ;;
     review)      shift; cmd_review "$@" ;;
+    worktree)    shift; cmd_worktree "$@" ;;
     jira-set)    shift; cmd_jira_set "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;

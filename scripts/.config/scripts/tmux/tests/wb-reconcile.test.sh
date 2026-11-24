@@ -293,6 +293,32 @@ fi
 printf '# No frontmatter\n\nintro\n\n---\nstatus: doing\nrepo: proj\nworktree: .worktrees/bodyrule-ghost\n---\nmore\n' > "$DUP_TASKS/proj--bodyrule.md"
 assert "reconcile_collect: body --- rule (no line-1 frontmatter) is not frontmatter" '^none$' "none$(wb_get_frontmatter "$DUP_TASKS/proj--bodyrule.md" worktree)"
 
+# --- worktrees: entries count as owned (R15) ---------------------------------
+EX_CODE="$(mktemp -d -t wb-reconcile-ex-code.XXXXXX)"
+EX_TASKS="$(mktemp -d -t wb-reconcile-ex-tasks.XXXXXX)"
+mk_repo "$EX_CODE/proj"
+mk_repo "$EX_CODE/other"
+add_worktree "$EX_CODE/proj" feat
+add_worktree "$EX_CODE/other" feat
+add_worktree "$EX_CODE/other" stray
+TASKS_DIR="$EX_TASKS"
+CODE_DIR="$EX_CODE"
+wb_reconcile_repos() { printf '%s\n' "$EX_CODE/proj" "$EX_CODE/other"; }
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: feat\nworktree: .worktrees/feat\nworktrees: other/.worktrees/feat\ntags: []\n---\n# T\n' > "$EX_TASKS/proj--feat.md"
+out_ex="$(cmd_reconcile --machine 2>&1)"
+if printf '%s' "$out_ex" | grep -q $'^orphan\tother\tfeat\t'; then
+  echo "FAIL - a listed extra worktree is reported as an orphan"; fail=1
+else
+  echo "ok   - a listed extra worktree is not an orphan"
+fi
+assert "an unlisted worktree in the same repo is still an orphan" $'^orphan\tother\tstray\t\\.worktrees/stray\t' "$out_ex"
+wb_worktree_has_task other .worktrees/feat; assert_eq "wb_worktree_has_task: the listed extra is owned" 0 "$?"
+wb_worktree_has_task other .worktrees/stray; assert_eq "wb_worktree_has_task: an unlisted one is not" 1 "$?"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: feat\nworktree: .worktrees/feat\nworktrees: proj/.worktrees/stray, ../other/.worktrees/stray\ntags: []\n---\n# T\n' > "$EX_TASKS/proj--feat.md"
+wb_worktree_has_task proj .worktrees/stray; assert_eq "an entry naming the primary's repo does not claim a worktree" 1 "$?"
+wb_worktree_has_task other .worktrees/stray; assert_eq "a climbing entry does not claim a worktree" 1 "$?"
+rm -rf "$EX_CODE" "$EX_TASKS"
+
 rm -rf "$DUP_TASKS" "$DUP_CODE" "$MAWK_SHIM_DIR"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"

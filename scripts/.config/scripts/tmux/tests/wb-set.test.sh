@@ -218,6 +218,10 @@ out="$(cmd_set "set-h" worktree .worktrees/x 2>&1)"; rc=$?
 assert_eq "refuses worktree: exit 1" 1 "$rc"
 assert "refuses worktree: message" "not settable via" "$out"
 
+out="$(cmd_set "set-h" worktrees other/.worktrees/x 2>&1)"; rc=$?
+assert_eq "refuses worktrees: exit 1" 1 "$rc"
+assert "refuses worktrees: message" "'worktrees' is not settable via.*tooling-owned" "$out"
+
 # =============================================================================
 # Scenario: branch is settable (a seeded slash name `wb new` adopts as the git
 # branch), validated as a real branch name.

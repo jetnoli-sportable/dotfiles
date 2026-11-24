@@ -983,6 +983,163 @@ assert "no wb-done-sweep.sh: says to re-stow" 'wb-done-sweep\.sh.*re-stow' "$out
 [ -d "$(w6_wt "$slug")" ] && echo "ok   - no wb-done-sweep.sh: worktree untouched" || { echo "FAIL - no wb-done-sweep.sh: worktree removed"; fail=1; }
 [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - no wb-done-sweep.sh: task file unchanged" || { echo "FAIL - no wb-done-sweep.sh: task file changed"; fail=1; }
 
+# =============================================================================
+# U7 (multi-repo): a task with an extra worktree in another repo (worktrees:).
+# wb done checks every worktree before changing anything, keeps an extra's
+# keepers under dossiers/<stem>/<repo>/, and removes the extras first.
+# =============================================================================
+XR="$FIXTURE_CODE/xr"
+git init -q "$XR"
+cp "$SWP/.gitignore" "$XR/.gitignore"
+printf 'tracked\n' > "$XR/tracked.txt"
+git -C "$XR" add -A
+git -C "$XR" -c user.email=test@test -c user.name=test commit -q -m init
+
+# mx_new <slug> — w6_new's primary in swp, plus an extra worktree in xr on the
+# same branch, listed in the task file's worktrees: field.
+mx_new() {
+  w6_new "$1" dossier
+  git -C "$XR" worktree add -q -b "$1" ".worktrees/$1" >/dev/null 2>&1
+  sed -i "/^worktree:/a worktrees: xr/.worktrees/$1" "$(w6_file "$1")"
+}
+mx_wt() { printf '%s\n' "$XR/.worktrees/$1"; }
+MX_GITLOG="$FIXTURE_STATE/mx-git-removes"
+mx_shim_git() { # log every `git -C <repo> worktree remove <path>`, in order
+  git() {
+    if [ "${1:-}" = -C ] && [ "${3:-}" = worktree ] && [ "${4:-}" = remove ]; then echo "$5" >> "$MX_GITLOG"; fi
+    command git "$@"
+  }
+}
+
+# --- no extras: the plain close is unchanged (the W6 cases above cover it) ---
+
+# --- AE5: an uncommitted edit in the extra refuses, names it, changes nothing -
+slug=mx-dirty; mx_new "$slug"
+printf 'queued\n' > "$(w6_wt "$slug")/.claude-queue.md"
+echo edit >> "$(mx_wt "$slug")/tracked.txt"
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - MX dirty extra: exits 1" || { echo "FAIL - MX dirty extra: exit $rc: $out"; fail=1; }
+assert "MX dirty extra: names the extra worktree" "$(mx_wt "$slug") is dirty" "$out"
+[ -d "$(w6_wt "$slug")" ] && [ -d "$(mx_wt "$slug")" ] && echo "ok   - MX dirty extra: both worktrees kept" || { echo "FAIL - MX dirty extra: a worktree was removed"; fail=1; }
+[ ! -e "$(w6_dossier "$slug")" ] && echo "ok   - MX dirty extra: nothing kept" || { echo "FAIL - MX dirty extra: dossier written"; fail=1; }
+[ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - MX dirty extra: task file byte-identical" || { echo "FAIL - MX dirty extra: task file changed"; fail=1; }
+
+# --- an unknown gitignored entry in the extra refuses before anything is kept -
+slug=mx-unk; mx_new "$slug"
+printf 'queued\n' > "$(w6_wt "$slug")/.claude-queue.md"
+mkdir -p "$(mx_wt "$slug")/scratch"; echo x > "$(mx_wt "$slug")/scratch/n.txt"
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - MX unknown in extra: exits 1" || { echo "FAIL - MX unknown in extra: exit $rc: $out"; fail=1; }
+assert "MX unknown in extra: names the entry with its repo prefix" 'unknown: xr:scratch/n\.txt' "$out"
+[ ! -e "$(w6_dossier "$slug")" ] && echo "ok   - MX unknown in extra: the primary's keeper was not copied" || { echo "FAIL - MX unknown in extra: dossier written"; fail=1; }
+[ -d "$(w6_wt "$slug")" ] && [ -d "$(mx_wt "$slug")" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - MX unknown in extra: nothing changed" || { echo "FAIL - MX unknown in extra: state changed"; fail=1; }
+
+# --- keepers go to dossiers/<stem>/ and dossiers/<stem>/xr/; extra removed first
+slug=mx-keep; mx_new "$slug"
+printf 'primary q\n' > "$(w6_wt "$slug")/.claude-queue.md"
+printf 'extra q\n' > "$(mx_wt "$slug")/.claude-queue.md"
+: > "$MX_GITLOG"; mx_shim_git
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+unset -f git
+[ "$rc" -eq 0 ] && echo "ok   - MX keep: exits 0" || { echo "FAIL - MX keep: exit $rc: $out"; fail=1; }
+[ "$(cat "$(w6_dossier "$slug")/.claude-queue.md" 2>/dev/null)" = "primary q" ] && echo "ok   - MX keep: the primary's keeper in dossiers/<stem>/" || { echo "FAIL - MX keep: primary keeper wrong or missing"; fail=1; }
+[ "$(cat "$(w6_dossier "$slug")/xr/.claude-queue.md" 2>/dev/null)" = "extra q" ] && echo "ok   - MX keep: the extra's keeper in dossiers/<stem>/xr/" || { echo "FAIL - MX keep: extra keeper wrong or missing"; fail=1; }
+[ ! -d "$(w6_wt "$slug")" ] && [ ! -d "$(mx_wt "$slug")" ] && echo "ok   - MX keep: both worktrees removed" || { echo "FAIL - MX keep: a worktree remains"; fail=1; }
+[ "$(cat "$MX_GITLOG")" = "$(mx_wt "$slug")"$'\n'"$(w6_wt "$slug")" ] && echo "ok   - MX keep: the extra is removed before the primary" || { echo "FAIL - MX keep: removal order: $(tr '\n' ' ' < "$MX_GITLOG")"; fail=1; }
+assert "MX keep: task done" '^done$' "$(w6_status "$slug")"
+rec="$(cat "$(w6_file "$slug")")"
+assert "MX keep: handoff names both worktrees removed" "^worktrees removed: xr/\\.worktrees/$slug, swp/\\.worktrees/$slug\$" "$rec"
+assert "MX keep: kept: line names both keepers" '^kept: \.claude-queue\.md, xr:\.claude-queue\.md$' "$rec"
+assert "MX keep: worktrees: left in place" "^worktrees: xr/\\.worktrees/$slug\$" "$rec"
+
+# --- a keeper collision in the extra stops the run before the primary's keepers
+# are copied: every worktree's destinations are checked before the first copy
+slug=mx-collide; mx_new "$slug"
+printf 'notes.txt\n' >> "$XR/.git/info/exclude"
+printf 'primary q\n' > "$(w6_wt "$slug")/.claude-queue.md"
+echo mine > "$(mx_wt "$slug")/notes.txt"
+mkdir -p "$(w6_dossier "$slug")/xr"; echo theirs > "$(w6_dossier "$slug")/xr/notes.txt"
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" --keep xr:notes.txt 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - MX collide: exits 1" || { echo "FAIL - MX collide: exit $rc: $out"; fail=1; }
+assert "MX collide: names the extra's colliding copy" "collides: .*dossiers/swp--${slug}/xr/notes\\.txt" "$out"
+[ ! -e "$(w6_dossier "$slug")/.claude-queue.md" ] && echo "ok   - MX collide: the primary's keeper was not copied" || { echo "FAIL - MX collide: primary keeper copied before the stop"; fail=1; }
+[ -d "$(w6_wt "$slug")" ] && [ -d "$(mx_wt "$slug")" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - MX collide: worktrees and task file intact" || { echo "FAIL - MX collide: state changed"; fail=1; }
+
+# --- an extra already missing on disk is skipped with a note -----------------
+slug=mx-gone; mx_new "$slug"
+git -C "$XR" worktree remove --force ".worktrees/$slug"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - MX extra gone: exits 0" || { echo "FAIL - MX extra gone: exit $rc: $out"; fail=1; }
+assert "MX extra gone: a note names it" "xr/\\.worktrees/$slug is not on disk" "$out"
+[ ! -d "$(w6_wt "$slug")" ] && echo "ok   - MX extra gone: the primary is still removed" || { echo "FAIL - MX extra gone: primary remains"; fail=1; }
+assert "MX extra gone: task done" '^done$' "$(w6_status "$slug")"
+
+# --- the primary already missing, the extra present and clean ----------------
+slug=mx-primgone; mx_new "$slug"
+printf 'extra q\n' > "$(mx_wt "$slug")/.claude-queue.md"
+git -C "$SWP" worktree remove --force ".worktrees/$slug"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - MX primary gone: exits 0" || { echo "FAIL - MX primary gone: exit $rc: $out"; fail=1; }
+[ ! -d "$(mx_wt "$slug")" ] && echo "ok   - MX primary gone: the extra is removed" || { echo "FAIL - MX primary gone: extra remains"; fail=1; }
+[ "$(cat "$(w6_dossier "$slug")/xr/.claude-queue.md" 2>/dev/null)" = "extra q" ] && echo "ok   - MX primary gone: the extra's keeper is kept" || { echo "FAIL - MX primary gone: extra keeper missing"; fail=1; }
+assert "MX primary gone: task done" '^done$' "$(w6_status "$slug")"
+
+# --- a re-run after the extra was removed but the primary's removal failed ---
+slug=mx-retry; mx_new "$slug"
+mx_fail_wt="$(w6_wt "$slug")"
+git() {
+  if [ "${1:-}" = -C ] && [ "${3:-}" = worktree ] && [ "${4:-}" = remove ] && [ "${5:-}" = "$mx_fail_wt" ]; then echo "simulated failure" >&2; return 1; fi
+  command git "$@"
+}
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+unset -f git
+[ "$rc" -eq 1 ] && [ ! -d "$(mx_wt "$slug")" ] && [ -d "$(w6_wt "$slug")" ] && echo "ok   - MX retry: first run removed the extra, then stopped on the primary" || { echo "FAIL - MX retry: first run rc $rc: $out"; fail=1; }
+assert "MX retry: first run left the task open" '^doing$' "$(w6_status "$slug")"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ ! -d "$(w6_wt "$slug")" ] && echo "ok   - MX retry: the re-run removes the primary" || { echo "FAIL - MX retry: re-run rc $rc: $out"; fail=1; }
+assert "MX retry: the re-run notes the extra already gone" "xr/\\.worktrees/$slug is not on disk" "$out"
+assert "MX retry: task done" '^done$' "$(w6_status "$slug")"
+
+# --- <repo>:<path> flags apply to that extra only ----------------------------
+slug=mx-flags; mx_new "$slug"
+mkdir -p "$(w6_wt "$slug")/scratch" "$(mx_wt "$slug")/scratch"
+echo p > "$(w6_wt "$slug")/scratch/n.txt"; echo e > "$(mx_wt "$slug")/scratch/n.txt"
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" --throwaway xr:scratch 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - MX flags: xr:scratch leaves the primary's scratch unknown" || { echo "FAIL - MX flags: xr:scratch exit $rc: $out"; fail=1; }
+assert "MX flags: the primary's refusal names scratch/n.txt unprefixed" '^  unknown: scratch/n\.txt$' "$out"
+out="$(cmd_done "$(session_for "$slug")" --throwaway scratch 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - MX flags: an unprefixed path leaves the extra's scratch unknown" || { echo "FAIL - MX flags: scratch exit $rc: $out"; fail=1; }
+assert "MX flags: the extra's refusal names xr:scratch" '^  unknown: xr:scratch/n\.txt$' "$out"
+[ -d "$(w6_wt "$slug")/scratch" ] && [ -d "$(mx_wt "$slug")/scratch" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - MX flags: nothing changed by the refused runs" || { echo "FAIL - MX flags: state changed"; fail=1; }
+out="$(cmd_done "$(session_for "$slug")" --throwaway scratch --throwaway xr:scratch 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - MX flags: both flags close the task" || { echo "FAIL - MX flags: both exit $rc: $out"; fail=1; }
+assert "MX flags: discarded: names both, the extra's prefixed" '^discarded: (.*, )?scratch/, xr:scratch/$' "$(cat "$(w6_file "$slug")")"
+
+# --- --review: an extra edited while the buffer is open stops the run --------
+slug=mx-review; mx_new "$slug"
+printf 'queued\n' > "$(w6_wt "$slug")/.claude-queue.md"
+wb_open_buffer() { echo "$1" >> "$W6_BUFLOG"; echo "edited meanwhile" >> "$(mx_wt mx-review)/tracked.txt"; }
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" --review 2>&1)"; rc=$?
+wb_open_buffer() { echo "$1" >> "$W6_BUFLOG"; }
+[ "$rc" -eq 1 ] && echo "ok   - MX --review: exits 1" || { echo "FAIL - MX --review: exit $rc: $out"; fail=1; }
+assert "MX --review: names the extra as dirty" "$(mx_wt "$slug") is dirty" "$out"
+[ -d "$(w6_wt "$slug")" ] && [ -d "$(mx_wt "$slug")" ] && [ ! -e "$(w6_dossier "$slug")" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - MX --review: nothing kept or removed" || { echo "FAIL - MX --review: state changed"; fail=1; }
+
+# --- an invalid worktrees: entry is reported and ignored, never removed ------
+slug=mx-invalid; mx_new "$slug"
+git -C "$SWP" worktree add -q -b "$slug-other" ".worktrees/$slug-other" >/dev/null 2>&1
+sed -i "s|^worktrees: .*|&, swp/.worktrees/$slug-other|" "$(w6_file "$slug")"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - MX invalid entry: exits 0" || { echo "FAIL - MX invalid entry: exit $rc: $out"; fail=1; }
+assert "MX invalid entry: reported" "skipping worktrees: entry 'swp/\\.worktrees/$slug-other'" "$out"
+[ -d "$SWP/.worktrees/$slug-other" ] && echo "ok   - MX invalid entry: its worktree is not removed" || { echo "FAIL - MX invalid entry: removed"; fail=1; }
+[ ! -d "$(mx_wt "$slug")" ] && [ ! -d "$(w6_wt "$slug")" ] && echo "ok   - MX invalid entry: the valid worktrees are removed" || { echo "FAIL - MX invalid entry: valid worktree remains"; fail=1; }
+
 # --- wb help lists all five flags -------------------------------------------
 help_out="$(bash "$WB" help 2>&1)"
 for flag in --close --leave-shelved --review --keep --throwaway; do

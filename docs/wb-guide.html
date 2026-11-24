@@ -469,6 +469,37 @@ as a <code>- size:</code> bullet.</p>
 <p><code>--agent</code> is deliberately opt-in: with ~10 Claude sessions being a
 reasonable working ceiling on this machine, <code>wb new</code> doesn't start one for
 you unless you ask.</p>
+<h3 id="a-task-that-spans-repos-wb-worktree-add">A task that spans repos: <code>wb worktree add</code></h3>
+<pre><code>$ wb worktree add &lt;repo&gt; [&lt;task&gt;]      # no task = the current session's
+</code></pre>
+<p>Some tasks change two repos, for example a wb-store PR for the review page
+and a dotfiles PR for <code>wb</code> itself. <code>wb new</code> makes the task's primary
+worktree, the one named by <code>repo:</code> and <code>worktree:</code>. <code>wb worktree add</code> gives
+the task a second worktree in <code>&lt;repo&gt;</code>:</p>
+<ul>
+<li><strong>Where:</strong> <code>~/code/&lt;repo&gt;/.worktrees/&lt;name&gt;</code>, with the primary's worktree
+name, on the task's <code>branch:</code> (cut from the repo's default branch when it
+doesn't exist there yet).</li>
+<li><strong>Ready to run:</strong> it gets the same gitignored bootstrap files and family
+<code>CLAUDE.local.md</code> that <code>wb new</code> gives a primary.</li>
+<li><strong>Recorded:</strong> it is added to the task file's <code>worktrees:</code> field, for
+example <code>worktrees: wb-store/.worktrees/wb-review-multi-repo</code>. That field
+holds one entry per repo and never one in the primary's repo.</li>
+<li><strong>Safe to re-run:</strong> a worktree already at that path on the task's branch is
+adopted, not made again, and a listed one isn't listed twice. The worktree
+is created first and recorded last, so a run that fails in between leaves
+a worktree that the next run adopts.</li>
+<li><strong>Refused:</strong> the primary's own repo, a folder that isn't a git repo, the
+task's branch checked out somewhere else in <code>&lt;repo&gt;</code> (it names where),
+and anything at the target path that isn't that branch's worktree.</li>
+</ul>
+<p>What reads <code>worktrees:</code>: the review page (one tab per repo), the turn
+snapshot (Last turn in every tab), <code>wb done</code> (checks and removes every
+worktree), <code>wb review</code> (opens when any worktree is on disk), and
+<code>wb reconcile</code> and the board (a listed worktree is the task's, not an
+orphan). <code>wb breakdown --apply</code> moves the field to the continuing child.
+The picker, <code>wb continue</code>, the session layout and <code>wb resume</code> stay on the
+primary; recreating extra worktrees on <code>wb resume</code> is a follow-up.</p>
 <h2 id="the-picker">The picker</h2>
 <p>Press <kbd>prefix</kbd>+<kbd>m</kbd> or <kbd>prefix</kbd>+<kbd>a</kbd> (both
 open the same picker now, launched with a neutral <code>$HOME</code> cwd so <code>wb done</code>
@@ -812,6 +843,17 @@ That entry says what was torn down and carries a <code>kept:</code> line and a
 open, and both the printed line and the Handoffs entry say &quot;session left
 open&quot;.</li>
 </ol>
+<p><strong>A task with extra worktrees</strong> (the <code>worktrees:</code> field, from
+<a href="#a-task-that-spans-repos-wb-worktree-add"><code>wb worktree add</code></a>) gets steps 1,
+3 and 4 for every worktree on disk, before anything changes: one dirty tree
+or unknown entry in any of them stops the run with nothing kept or removed.
+An extra's keepers go to <code>dossiers/&lt;repo&gt;--&lt;slug&gt;/&lt;extra-repo&gt;/</code>, and a
+<code>--keep</code> or <code>--throwaway</code> path inside an extra is written
+<code>&lt;extra-repo&gt;:&lt;path&gt;</code> (a path with no prefix is the primary's). Step 6
+removes the extras first, then the primary, and the Handoffs entry lists
+every worktree removed. An extra already missing from disk is skipped with
+a note, so re-running after a half-finished close finishes it. <code>worktrees:</code>
+stays in the file, as <code>worktree:</code> does.</p>
 <p><strong><code>--review</code></strong> is the one way to get an editor. It sorts the files first (so an
 unknown stops the run before you spend time reviewing), opens the task file in
 a split and waits for you to close it, checks again for uncommitted changes,
@@ -951,6 +993,9 @@ path:                 # optional: ideate,brainstorm,plan,work,review subset;
 repo: dotfiles
 branch: feat/onboarding
 worktree: .worktrees/feat/onboarding
+worktrees:            # optional: worktrees in other repos, comma-separated
+                      # &lt;repo&gt;/.worktrees/&lt;name&gt;; written by
+                      # `wb worktree add`, never by hand or `wb set`
 parent:               # optional: &lt;repo&gt;--&lt;slug&gt; of a parent task
 depends_on:           # optional: comma-separated blocking task stems
 tags: []
@@ -1223,7 +1268,8 @@ printing its URL, <code>wb page</code> says so at once and shows the log's last 
 <p><code>wb review</code> opens the current session's task in a local review page drawn by
 <code>wb-store review</code>: the task's changes against the merge-base with the repo's
 default branch, laid out like GitHub's &quot;Files changed&quot; tab, with viewed ticks
-and line comments sent back to the task's session as one review. <code>wb review &lt;task&gt;</code> opens another task's page. A task with no worktree on disk is refused.</p>
+and line comments sent back to the task's session as one review. <code>wb review &lt;task&gt;</code> opens another task's page. A task with no worktree on disk is refused;
+one whose primary is gone but an extra worktree is still there opens.</p>
 <table>
 <thead>
 <tr>
@@ -1282,6 +1328,29 @@ Old-side comments (<code>C</code>) work only in the full, uncommitted and commit
 with a closing <code>**Needs you:**</code> question, so it doesn't bury the question. The
 page shows the question with a <strong>Deliver now</strong> button. A prompt you type, or a
 review you send after the question, releases the hold.</p>
+<p><strong>A task with extra worktrees</strong> (<code>worktrees:</code>, from
+<a href="#a-task-that-spans-repos-wb-worktree-add"><code>wb worktree add</code></a>) gets a tab per
+repo in the page header, the primary first. Each tab shows its unsent draft
+count and, once loaded in the background, how many of its files you haven't
+ticked viewed. <code>{</code> and <code>}</code> step to the previous and next tab; <code>[</code> and <code>]</code>
+still step files.</p>
+<ul>
+<li><strong>One repo per view.</strong> Every view, search, tick and draft belongs to the
+selected tab's repo, and the URL carries it (<code>?repo=&lt;name&gt;</code>), so a reload
+or a link keeps the tab. The same path in two repos has a separate tick in
+each, and a comment shows only on its own repo's file.</li>
+<li><strong>Other repos' drafts stay in the rail,</strong> labelled with their repo;
+clicking one opens its tab at that file.</li>
+<li><strong>One Send for all repos.</strong> Send takes every unsent draft of every repo.
+When any comment is outside the primary, the review record puts the note
+first, then a section per repo headed with its name and worktree path;
+otherwise the record is the single-repo one.</li>
+<li><strong>Last turn per repo.</strong> The turn snapshot records every worktree of the
+task, so each tab's Last turn shows what the last turn changed in that
+repo. A repo the turn didn't touch keeps its earlier turn.</li>
+<li><strong>Missing worktrees.</strong> A tab whose worktree is gone says so. When the
+primary is gone, the page opens on the first repo that's still there.</li>
+</ul>
 <p>Vimium users: add the exclusion rule <code>http://127.0.0.1:*/t/*</code>, with no pass
 keys, so the page's own keys reach it.</p>
 <h2 id="wb-board---html--the-full-board-v2"><code>wb board --html</code> — the full board (v2)</h2>
