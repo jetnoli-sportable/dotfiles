@@ -7160,7 +7160,6 @@ cmd_done() {
   fi
   # R22: which gitignored entries went to the dossier and which were deleted.
   local handoff_msg="$done_note."
-  # A task with extras says which worktrees went and which were already gone.
   if [ -n "$ex_repos" ]; then
     [ "${#wt_removed[@]}" -eq 0 ] || handoff_msg+=$'\n'"worktrees removed: $(_wb_done_join "${wt_removed[@]}")"
     [ "${#ex_gone[@]}" -eq 0 ] || handoff_msg+=$'\n'"worktrees already gone: $(_wb_done_join "${ex_gone[@]}")"
