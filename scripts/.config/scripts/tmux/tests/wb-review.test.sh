@@ -74,7 +74,7 @@ curl() {
 hz() { printf '{"app":"%s","build_id":"%s"}' "$1" "$2"; }
 
 OPENED="$FIXTURE/opened"
-_wb_review_open() { printf '%s\n' "$1" > "$OPENED"; }
+_wb_page_open() { printf '%s\n' "$1" > "$OPENED"; }
 PIDFILE="$XDG_STATE_HOME/wb/review-server.$(printf '%s' "$BIN" | cksum | cut -d ' ' -f 1).pid"
 reset() { : > "$SERVE_LOG"; rm -f "$OPENED" "$PIDFILE" "$FIXTURE/messages"; HEALTHZ=(); STUB_TASK=""; }
 
