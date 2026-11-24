@@ -222,6 +222,24 @@ verify-behaviour() {
 }
 # wb-claude-wrapper:end
 
+# Point XAUTHORITY at this login's X11 key before every command. The tmux
+# server outlives a GNOME logout (linger, #123), so its shells keep the key
+# path from the login that started them, and mutter leaves the old key file
+# behind. With the stale key, xclip fails ("Invalid MIT-MAGIC-COOKIE-1 key")
+# and Claude Code's Ctrl+V image paste says it's pasting and does nothing.
+# A non-mutter XAUTHORITY (a plain X11 login) is left alone; clipboard.sh
+# applies the same rule.
+if [[ -o interactive ]]; then
+  _live_xauthority() {
+    setopt localoptions bareglobqual
+    [[ -z ${XAUTHORITY:-} || $XAUTHORITY == */.mutter-Xwaylandauth.* || ! -r $XAUTHORITY ]] || return 0
+    local -a keys=( ${XDG_RUNTIME_DIR:-/run/user/$UID}/.mutter-Xwaylandauth.*(N.om[1]) )
+    (( $#keys )) && export XAUTHORITY=$keys[1]
+  }
+  autoload -Uz add-zsh-hook
+  add-zsh-hook preexec _live_xauthority
+fi
+
 # replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui)
 # Rebuild with: cd ~/code/replay-tui* && go build -o "$HOME/go/bin/replay" ./cmd/replay
 alias replay="$HOME/go/bin/replay"
