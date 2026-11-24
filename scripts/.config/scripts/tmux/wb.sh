@@ -6821,23 +6821,22 @@ _wb_done_keep_rollback() {
   return 0
 }
 
-# _wb_done_keep_all <worktree> <dossier> [<keep path>]... — copy every keeper
-# into <dossier>/<path> with cp -a (never -L: symlinks are copied as links,
-# not followed). Checks every destination first: a differing file already
-# there stops everything with nothing written. Identical ones are skipped but
-# still count as kept. The classifier has already refused any credential-shaped
-# keeper, so a directory copy needs no per-file filter.
-_wb_done_keep_all() {
+# _wb_done_keep_check <worktree> <dossier> [<keep path>]... — check every
+# keeper's destination in <dossier>: a differing file already there prints the
+# stop message and returns 1. Fills _wb_keep_todo with the keepers still to
+# copy (identical ones are skipped). cmd_done runs it over every worktree of
+# the task before the first copy, so a collision in an extra stops the run
+# before the primary's keepers are written.
+_wb_done_keep_check() {
   local wt="$1" dossier="$2"; shift 2
-  [ "$#" -gt 0 ] || return 0
+  _wb_keep_todo=()
   local kp rel c st line bad=""
-  local -a todo=()
   for kp in "$@"; do
     rel="${kp%/}"
     st=0; c="$(_wb_done_keep_state "$wt" "$dossier" "$rel")" || st=$?
     case "$st" in
       1) while IFS= read -r line; do bad+="${bad:+$'\n'}  collides: $dossier/$line"; done <<<"$c" ;;
-      0) todo+=("$rel") ;;
+      0) _wb_keep_todo+=("$rel") ;;
     esac
   done
   if [ -n "$bad" ]; then
@@ -6848,6 +6847,23 @@ _wb_done_keep_all() {
     } >&2
     return 1
   fi
+  return 0
+}
+
+# _wb_done_keep_all <worktree> <dossier> [<keep path>]... — copy every keeper
+# into <dossier>/<path> with cp -a (never -L: symlinks are copied as links,
+# not followed). Checks every destination first (_wb_done_keep_check): a
+# differing file already there stops everything with nothing written.
+# Identical ones are skipped but still count as kept. The classifier has
+# already refused any credential-shaped keeper, so a directory copy needs no
+# per-file filter.
+_wb_done_keep_all() {
+  local wt="$1" dossier="$2"; shift 2
+  [ "$#" -gt 0 ] || return 0
+  local rel
+  local -a _wb_keep_todo=()
+  _wb_done_keep_check "$wt" "$dossier" "$@" || return 1
+  local -a todo=(${_wb_keep_todo[@]+"${_wb_keep_todo[@]}"})
   # Track what THIS run creates, so a failed copy can take it back: the topmost
   # path that was absent before each keeper's copy (a single file, a new
   # directory, or a missing parent chain). Nothing that existed before the run
@@ -7068,6 +7084,12 @@ cmd_done() {
     wb_task_lock_acquire_guarded "needs-you-$task_stem" || exit $?
     ny_locked=1
     local dossier="$TASKS_DIR/dossiers/$task_stem"
+    local -a _wb_keep_todo=()
+    for i in "${!wt_paths[@]}"; do
+      [ -n "${done_keep[${wt_paths[i]}]:-}" ] || continue
+      mapfile -t wt_kp <<<"${done_keep[${wt_paths[i]}]}"
+      _wb_done_keep_check "${wt_paths[i]}" "$dossier${wt_keys[i]:+/${wt_keys[i]}}" "${wt_kp[@]}" || exit 1
+    done
     for i in "${!wt_paths[@]}"; do
       wt_kp=(); wt_tp=()
       [ -z "${done_keep[${wt_paths[i]}]:-}" ] || mapfile -t wt_kp <<<"${done_keep[${wt_paths[i]}]}"

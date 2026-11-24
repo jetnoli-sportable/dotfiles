@@ -1054,6 +1054,20 @@ assert "MX keep: handoff names both worktrees removed" "^worktrees removed: xr/\
 assert "MX keep: kept: line names both keepers" '^kept: \.claude-queue\.md, xr:\.claude-queue\.md$' "$rec"
 assert "MX keep: worktrees: left in place" "^worktrees: xr/\\.worktrees/$slug\$" "$rec"
 
+# --- a keeper collision in the extra stops the run before the primary's keepers
+# are copied: every worktree's destinations are checked before the first copy
+slug=mx-collide; mx_new "$slug"
+printf 'notes.txt\n' >> "$XR/.git/info/exclude"
+printf 'primary q\n' > "$(w6_wt "$slug")/.claude-queue.md"
+echo mine > "$(mx_wt "$slug")/notes.txt"
+mkdir -p "$(w6_dossier "$slug")/xr"; echo theirs > "$(w6_dossier "$slug")/xr/notes.txt"
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" --keep xr:notes.txt 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - MX collide: exits 1" || { echo "FAIL - MX collide: exit $rc: $out"; fail=1; }
+assert "MX collide: names the extra's colliding copy" "collides: .*dossiers/swp--${slug}/xr/notes\\.txt" "$out"
+[ ! -e "$(w6_dossier "$slug")/.claude-queue.md" ] && echo "ok   - MX collide: the primary's keeper was not copied" || { echo "FAIL - MX collide: primary keeper copied before the stop"; fail=1; }
+[ -d "$(w6_wt "$slug")" ] && [ -d "$(mx_wt "$slug")" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - MX collide: worktrees and task file intact" || { echo "FAIL - MX collide: state changed"; fail=1; }
+
 # --- an extra already missing on disk is skipped with a note -----------------
 slug=mx-gone; mx_new "$slug"
 git -C "$XR" worktree remove --force ".worktrees/$slug"
