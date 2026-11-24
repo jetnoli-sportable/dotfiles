@@ -1767,6 +1767,13 @@ _wb_safe_worktree_field() {
   return 0
 }
 
+# _wb_safe_repo_segment <s> — 0 when <s> is one repo-name segment of
+# [A-Za-z0-9._-], not empty, `.` or `..`.
+_wb_safe_repo_segment() {
+  case "$1" in ''|.|..|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  return 0
+}
+
 # _wb_safe_worktrees_entry <entry> — 0 when <entry> is a well-formed
 # `worktrees:` item, `<repo>/.worktrees/<name>`: the repo part is one segment
 # of [A-Za-z0-9._-] (not `.` or `..`), split at the first `/.worktrees/`, and
@@ -1777,27 +1784,34 @@ _wb_safe_worktrees_entry() {
   case "$entry" in */.worktrees/?*) ;; *) return 1 ;; esac
   repo="${entry%%/.worktrees/*}"
   rest=".worktrees/${entry#*/.worktrees/}"
-  case "$repo" in ''|.|..|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  _wb_safe_repo_segment "$repo" || return 1
   _wb_safe_worktree_field "$rest"
 }
 
-# _wb_task_worktrees <task_file> [quiet] — a task's valid `worktrees:`
-# entries, one `<repo>/.worktrees/<name>` per line. An entry that is
-# malformed, repeats a repo, or names the primary's repo is skipped with a
-# note on stderr (none when the second argument is `quiet`, for scans over
-# every task file).
-_wb_task_worktrees() {
-  local file="$1" quiet="${2:-}" raw primary item
-  raw="$(wb_get_frontmatter "$file" worktrees)"
+# _wb_worktrees_items <raw> — a raw `worktrees:` value's items, one trimmed
+# non-empty item per line, after dropping a trailing ` # comment`.
+_wb_worktrees_items() {
+  local raw="$1" rest item
   raw="${raw%%[[:space:]]#*}"
-  [[ "$raw" == *[![:space:]]* ]] || return 0
-  primary="$(wb_get_frontmatter "$file" repo)"; read -r primary <<< "$primary"
-  local -A seen=()
-  local rest="$raw," key
+  rest="$raw,"
   while [ -n "$rest" ]; do
     item="${rest%%,*}"; rest="${rest#*,}"
     read -r item <<< "$item"
-    [ -n "$item" ] || continue
+    [ -n "$item" ] && printf '%s\n' "$item"
+  done
+  return 0
+}
+
+# _wb_filter_worktrees <task_file> <raw> <primary> [quiet] — the valid entries
+# of an already-read `worktrees:` value, one `<repo>/.worktrees/<name>` per
+# line. An entry that is malformed, repeats a repo, or names the primary's
+# repo is skipped with a note on stderr (none when the fourth argument is
+# `quiet`, for scans over every task file).
+_wb_filter_worktrees() {
+  local file="$1" raw="$2" primary="$3" quiet="${4:-}" item key
+  read -r primary <<< "$primary"
+  local -A seen=()
+  while IFS= read -r item; do
     key="${item%%/*}"
     if ! _wb_safe_worktrees_entry "$item" || [ "$key" = "$primary" ] || [ -n "${seen[$key]:-}" ]; then
       [ "$quiet" = quiet ] || echo "wb: skipping worktrees: entry '$item' in $(basename -- "$file") (malformed, repeated repo, or the primary's repo)" >&2
@@ -1805,7 +1819,17 @@ _wb_task_worktrees() {
     fi
     seen[$key]=1
     printf '%s\n' "$item"
-  done
+  done < <(_wb_worktrees_items "$raw")
+}
+
+# _wb_task_worktrees <task_file> [quiet] — a task's valid `worktrees:`
+# entries; reads the file, then _wb_filter_worktrees.
+_wb_task_worktrees() {
+  local file="$1" quiet="${2:-}" raw primary
+  raw="$(wb_get_frontmatter "$file" worktrees)"
+  [[ "${raw%%[[:space:]]#*}" == *[![:space:]]* ]] || return 0
+  primary="$(wb_get_frontmatter "$file" repo)"
+  _wb_filter_worktrees "$file" "$raw" "$primary" "$quiet"
 }
 
 # _wb_task_wt_slug <task_file> <repo> — the worktree slug a resume of this task
@@ -2711,18 +2735,30 @@ wb_branch_has_open_pr() {
 # detection and /board's untracked-worktree rows (U4) — same question,
 # asked from two call sites, must never drift out of sync.
 wb_worktree_has_task() {
-  local repo="$1" rel="$2" tf
-  local extra e
+  local repo="$1" rel="$2" tf kind val e
+  local t_repo t_wt t_wts
   while IFS= read -r tf; do
-    if [ "$(wb_get_frontmatter "$tf" repo)" = "$repo" ] \
-        && [ "$(wb_get_frontmatter "$tf" worktree)" = "$rel" ]; then
+    t_repo="" t_wt="" t_wts=""
+    # repo:, worktree: and worktrees: in one pass, read as
+    # wb_get_frontmatter_text does (first match of each key wins)
+    while IFS= read -r kind && IFS= read -r val; do
+      case "$kind" in r) t_repo="$val" ;; w) t_wt="$val" ;; x) t_wts="$val" ;; esac
+    done < <(awk '
+      NR == 1 && $0 != "---" { exit }
+      /^---$/ { infm++; if (infm == 2) exit; next }
+      infm == 1 {
+        if (!r && $0 ~ "^repo:") { r = 1; sub("^repo:[ \t]*", ""); print "r"; print; next }
+        if (!w && $0 ~ "^worktree:") { w = 1; sub("^worktree:[ \t]*", ""); print "w"; print; next }
+        if (!x && $0 ~ "^worktrees:") { x = 1; sub("^worktrees:[ \t]*", ""); print "x"; print }
+      }
+    ' "$tf")
+    if [ "$t_repo" = "$repo" ] && [ "$t_wt" = "$rel" ]; then
       return 0
     fi
-    extra="$(wb_get_frontmatter "$tf" worktrees)"
-    [[ "$extra" == *[![:space:]]* ]] || continue
+    [[ "$t_wts" == *[![:space:]]* ]] || continue
     while IFS= read -r e; do
       [ "$e" = "$repo/$rel" ] && return 0
-    done < <(_wb_task_worktrees "$tf" quiet)
+    done < <(_wb_filter_worktrees "$tf" "$t_wts" "$t_repo" quiet)
   done < <(wb_task_files)
   return 1
 }
@@ -3842,7 +3878,7 @@ _wb_breakdown_execute() {
   local parent_repo; parent_repo="$(wb_get_frontmatter "$parent_file" repo)"
   local did_something=0 migration_target_file=""
   local -a created_children=()
-  local line
+  local line p_worktrees
 
   # 1. seed checked children -------------------------------------------------
   #    Pre-pass: every create row's resolved stem, so a depends_on: naming a
@@ -3923,7 +3959,7 @@ _wb_breakdown_execute() {
     p_worktree="$(wb_get_frontmatter "$parent_file" worktree)"
     wb_set_frontmatter "$target_file" branch "$p_branch"
     wb_set_frontmatter "$target_file" worktree "$p_worktree"
-    local p_worktrees; p_worktrees="$(wb_get_frontmatter "$parent_file" worktrees)"
+    p_worktrees="$(wb_get_frontmatter "$parent_file" worktrees)"
     [ -z "$p_worktrees" ] || wb_set_frontmatter "$target_file" worktrees "$p_worktrees"
     [ "$(wb_get_frontmatter "$target_file" status)" != planned ] || wb_set_frontmatter "$target_file" status doing
     wb_set_frontmatter "$parent_file" branch ""
@@ -6609,7 +6645,7 @@ _wb_done_classify() {
 # `<repo>:<path>` with <repo> one of those belongs to that extra; any other
 # path belongs to the primary. Each worktree gets only its own flags.
 _wb_done_classify_wt() {
-  local quiet="$1" key="$2" repos="$3" wt="$4" main="$5"; shift 5
+  local quiet="$1" repo="$2" repos="$3" wt="$4" main="$5"; shift 5
   local flag p r
   local -a own=()
   while [ $# -ge 2 ]; do
@@ -6620,12 +6656,12 @@ _wb_done_classify_wt() {
       [[ " $repos " == *" $r "* ]] || r=""
     fi
     if [ -n "$r" ]; then
-      [ "$r" != "$key" ] || own+=("$flag" "${p#*:}")
-    elif [ -z "$key" ]; then
+      [ "$r" != "$repo" ] || own+=("$flag" "${p#*:}")
+    elif [ -z "$repo" ]; then
       own+=("$flag" "$p")
     fi
   done
-  _wb_done_classify "$quiet" "$wt" "$main" "${key:+$key:}" ${own[@]+"${own[@]}"} || return 1
+  _wb_done_classify "$quiet" "$wt" "$main" "${repo:+$repo:}" ${own[@]+"${own[@]}"} || return 1
   local IFS=$'\n'
   done_keep["$wt"]="${keep_paths[*]}"
   done_throw["$wt"]="${throw_paths[*]}"
@@ -6942,7 +6978,7 @@ cmd_done() {
   # a note so a retry after a half-finished run works; an invalid entry is
   # noted by _wb_task_worktrees and never touched.
   local -a wt_paths=() wt_keys=() wt_names=() ex_gone=() wt_removed=()
-  local ex_repos="" e i
+  local ex_repos="" e i primary_on_disk=0
   if [ "$store_only" = 0 ]; then
     # worktree_rel/slug derived from the TASK FILE's own frontmatter, never
     # from @wb_repo/@wb_slug directly — a migrated child's worktree:/branch:
@@ -6968,6 +7004,7 @@ cmd_done() {
     if [ -d "$worktree_path" ]; then
       _wb_done_registered_guard "$repo_dir" "$worktree_path"
       wt_paths+=("$worktree_path"); wt_keys+=(""); wt_names+=("$repo/$worktree_rel")
+      primary_on_disk=1
     fi
     while IFS= read -r e; do
       ex_repos+="${ex_repos:+ }${e%%/*}"
@@ -7063,7 +7100,7 @@ cmd_done() {
         || { echo "wb done: could not remove ${wt_paths[i]} (task left as is)" >&2; exit 1; }
       wt_removed+=("${wt_names[i]}")
     done
-    if [ -z "${wt_keys[0]}" ]; then
+    if [ "$primary_on_disk" = 1 ]; then
       git -C "$repo_dir" worktree remove "$worktree_path" --force \
         || { echo "wb done: could not remove $worktree_path (task left as is)" >&2; exit 1; }
       wt_removed+=("${wt_names[0]}")
@@ -8662,7 +8699,7 @@ cmd_review() {
     on_disk=1
   else
     while IFS= read -r e; do
-      [ -d "$CODE_DIR/$e" ] && { on_disk=1; break; }
+      if [ -d "$CODE_DIR/$e" ]; then on_disk=1; break; fi
     done < <(_wb_task_worktrees "$file")
   fi
   if [ "$on_disk" = 0 ]; then
@@ -8694,9 +8731,9 @@ cmd_worktree() {
   local usage="usage: wb worktree add <repo> [<task-ref>]"
   if [ "${1:-}" != add ] || [ $# -lt 2 ] || [ $# -gt 3 ]; then echo "$usage" >&2; return 1; fi
   local repo="$2" file stem primary_repo wt branch name entry repo_dir path e
-  case "$repo" in ''|.|..|*[!A-Za-z0-9._-]*)
-    echo "wb worktree: '$repo' is not a repo name" >&2; return 1 ;;
-  esac
+  if ! _wb_safe_repo_segment "$repo"; then
+    echo "wb worktree: '$repo' is not a repo name" >&2; return 1
+  fi
   file="$(_wb_resolve_task_arg "${3:-}" "wb worktree" "$usage")" || return 1
   stem="$(basename -- "$file" .md)"
   primary_repo="$(wb_get_frontmatter "$file" repo)"; read -r primary_repo <<< "$primary_repo"
@@ -8746,17 +8783,12 @@ cmd_worktree() {
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$file" || return $?
-  local raw cur="" item rest listed=0
+  local raw cur="" item listed=0
   raw="$(wb_get_frontmatter "$file" worktrees)"
-  raw="${raw%%[[:space:]]#*}"
-  rest="$raw,"
-  while [ -n "$rest" ]; do
-    item="${rest%%,*}"; rest="${rest#*,}"
-    read -r item <<< "$item"
-    [ -n "$item" ] || continue
+  while IFS= read -r item; do
     [ "$item" != "$entry" ] || listed=1
     cur="${cur:+$cur, }$item"
-  done
+  done < <(_wb_worktrees_items "$raw")
   if [ "$listed" = 0 ]; then
     wb_set_frontmatter_field "$file" worktrees "${cur:+$cur, }$entry" worktree
   fi

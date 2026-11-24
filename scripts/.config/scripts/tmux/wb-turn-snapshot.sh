@@ -196,6 +196,18 @@ wbts_gd() {
   [ -n "$GD" ] && [ "$GD" != "${dirs#*$'\n'}" ]
 }
 
+# wbts_safe_repo <s> — 0 when <s> is one repo-name segment of [A-Za-z0-9._-], not . or ..
+wbts_safe_repo() {
+  case "$1" in '' | . | .. | *[!A-Za-z0-9._-]*) return 1 ;; esac
+}
+
+# wbts_safe_wt <s> — 0 when <s> is .worktrees/<name> with no empty, . or .. segment
+wbts_safe_wt() {
+  case "$1" in .worktrees/?*) ;; *) return 1 ;; esac
+  case "$1" in *[!A-Za-z0-9._/-]*) return 1 ;; esac
+  case "/$1/" in *//* | */../* | */./*) return 1 ;; esac
+}
+
 # wbts_task_dirs — print the task's worktree directories, primary first, then the
 # valid extras, from the task file named by the pane's @task. The rules are
 # wb.sh's (_wb_safe_worktree_field, and _wb_safe_worktrees_entry: the repo part of
@@ -250,16 +262,6 @@ wbts_task_dirs() {
   done <<<"${extras//,/$'\n'}"
 }
 
-wbts_safe_repo() {
-  case "$1" in '' | . | .. | *[!A-Za-z0-9._-]*) return 1 ;; esac
-}
-
-wbts_safe_wt() {
-  case "$1" in .worktrees/?*) ;; *) return 1 ;; esac
-  case "$1" in *[!A-Za-z0-9._/-]*) return 1 ;; esac
-  case "/$1/" in *//* | */../* | */./*) return 1 ;; esac
-}
-
 # wbts_list — fill WT_DIRS and WT_GDS (parallel arrays): the working folder's
 # worktree, then the task's, each once by git dir.
 wbts_list() {
@@ -273,12 +275,12 @@ wbts_list() {
     WT_GDS+=("$GD")
   done < <(
     printf '%s\n' "$PWD"
-    [ -n "${TMUX_PANE:-}" ] && wbts_task_dirs
+    wbts_task_dirs
   )
 }
 
 main() {
-  local i fd held="" US=$'\037' dir gd
+  local i fd held="" US=$'\037' dir gd budget=3
   case "$WBTS_VERB" in prompt | stop | _prompt) ;; *) return 0 ;; esac
   if [ "$WBTS_VERB" = _prompt ]; then
     # The parent's locks sit on inherited descriptors; each line is fd, git dir, directory.
@@ -290,25 +292,19 @@ main() {
     done <<<"${WBTS_HELD:-}"
     return 0
   fi
-  [ "$WBTS_VERB" = stop ] && { [ -t 0 ] || WBTS_INPUT="$(cat)"; }
-  local budget=3
-  [ "$WBTS_VERB" = stop ] && budget=8
+  if [ "$WBTS_VERB" = stop ]; then
+    budget=8
+    [ -t 0 ] || WBTS_INPUT="$(cat)"
+  fi
   WBTS_DEADLINE=$((${EPOCHREALTIME/[.,]/} + budget * 1000000))
   wbts_list
   for i in "${!WT_DIRS[@]}"; do
     WBTS_WT="${WT_DIRS[i]}" GD="${WT_GDS[i]}"
     exec {fd}>>"$GD/wb-turn.lock" || continue
-    if wbts_cap; then
-      flock -w "$WBTS_CT" "$fd" || {
-        exec {fd}>&-
-        continue
-      }
-    else
-      flock -n "$fd" || {
-        exec {fd}>&-
-        continue
-      }
-    fi
+    if wbts_cap; then flock -w "$WBTS_CT" "$fd"; else flock -n "$fd"; fi || {
+      exec {fd}>&-
+      continue
+    }
     if [ "$WBTS_VERB" = stop ]; then
       wbts_run_stop
       exec {fd}>&-
