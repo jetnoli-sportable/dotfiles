@@ -28,3 +28,7 @@ throwaway:.ruff_cache/
 # gitignored files are swept, so a repo that commits its lock file is unaffected.
 throwaway:.terraform/
 throwaway:.terraform.lock.hcl
+# DVC's local cache, index and locks; `dvc pull` rebuilds them from the remote.
+throwaway:.dvc/cache/
+throwaway:.dvc/site-cache/
+throwaway:.dvc/tmp/
