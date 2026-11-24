@@ -27,7 +27,11 @@
 #                                    into keep (copied to the task's dossier) / throwaway (deleted with it) /
 #                                    unknown (stops the run before anything changes); --keep/--throwaway <path>
 #                                    (repeatable) classify one entry for this run; --review opens the task file
-#                                    in an editor first (no buffer otherwise)
+#                                    in an editor first (no buffer otherwise). Extra worktrees (worktrees:, from
+#                                    `wb worktree add`) are checked and sorted the same way before anything
+#                                    changes, their keepers kept under the dossier's <repo>/, and removed before
+#                                    the primary; a path in one is written <repo>:<path>; one already gone is
+#                                    skipped with a note
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
 #   wb restart [--dry-run] <list-file>|--crashed
 #                                    bring back many sessions after a crash: `wb resume` each task stem in
@@ -6513,14 +6517,16 @@ _wb_done_join() {
   printf '%s' "$out"
 }
 
-# _wb_done_print_unknowns <worktree> <unknown>... — print the stop message's
-# `  unknown: <path> — <note>` lines, at most 10 per top-level entry git
-# reported (an ignored directory such as `.next/` is opened one level at a
-# time and can yield hundreds), then one line saying how many more there were
-# and how to dispose of the whole entry. Paths are shown escaped
-# (_wb_sweep_esc). Few unknowns are all printed, with no extra git call.
+# _wb_done_print_unknowns <worktree> <prefix> <unknown>... — print the stop
+# message's `  unknown: <prefix><path> — <note>` lines, at most 10 per
+# top-level entry git reported (an ignored directory such as `.next/` is
+# opened one level at a time and can yield hundreds), then one line saying how
+# many more there were and how to dispose of the whole entry. Paths are shown
+# escaped (_wb_sweep_esc). Few unknowns are all printed, with no extra git
+# call. <prefix> is `<repo>:` for an extra worktree, the form its --keep and
+# --throwaway paths take, and empty for the primary.
 _wb_done_print_unknowns() {
-  local wt="$1" u path e key i; shift
+  local wt="$1" pfx="$2" u path e key i; shift 2
   local -a entries=() keys=()
   local -A total=() shown=()
   if [ "$#" -gt 10 ]; then
@@ -6543,22 +6549,23 @@ _wb_done_print_unknowns() {
       shown["$key"]=$(( ${shown["$key"]:-0} + 1 ))
       if [ "${shown["$key"]}" -gt 10 ]; then
         [ "${shown["$key"]}" -eq "${total["$key"]}" ] || continue
-        echo "  … and $(( ${total["$key"]} - 10 )) more under $(_wb_sweep_esc "$key") (add \`throwaway:$(_wb_sweep_esc "$key")\` to wb-done-sweep.list or re-run with --throwaway $(_wb_sweep_esc "${key%/}"))"
+        echo "  … and $(( ${total["$key"]} - 10 )) more under $pfx$(_wb_sweep_esc "$key") (add \`throwaway:$(_wb_sweep_esc "$key")\` to wb-done-sweep.list or re-run with --throwaway $pfx$(_wb_sweep_esc "${key%/}"))"
         continue
       fi
     fi
-    echo "  unknown: $(_wb_sweep_esc "$u")"
+    echo "  unknown: $pfx$(_wb_sweep_esc "$u")"
   done
 }
 
-# _wb_done_classify <quiet> <worktree> <main> [--keep p|--throwaway p]... —
+# _wb_done_classify <quiet> <worktree> <main> <prefix> [--keep p|--throwaway p]... —
 # run wb_sweep_classify and fill the caller's keep_paths / throw_paths (bash
 # dynamic scope; entries keep the classifier's trailing `/` on a directory).
 # Any unknown prints the stop message on stderr and returns 1, with nothing
 # changed. <quiet> 1 hides the classifier's own warnings (a second pass would
-# only repeat them).
+# only repeat them). <prefix> goes in front of each path the stop message
+# names (_wb_done_print_unknowns).
 _wb_done_classify() {
-  local quiet="$1" wt="$2" main="$3"; shift 3
+  local quiet="$1" wt="$2" main="$3" pfx="$4"; shift 4
   local out rc=0 cls path note
   local -a unknowns=()
   keep_paths=(); throw_paths=()
@@ -6585,12 +6592,60 @@ _wb_done_classify() {
   if [ "${#unknowns[@]}" -gt 0 ]; then
     {
       echo "wb done: ${#unknowns[@]} gitignored entr$([ "${#unknowns[@]}" = 1 ] && echo y || echo ies) in $wt can't be sorted, so nothing was changed:"
-      _wb_done_print_unknowns "$wt" "${unknowns[@]}"
-      echo "wb done: add each to wb-done-sweep.list (keep: or throwaway:) beside wb.sh, or re-run with --keep <path> (copies it into the task's dossier) or --throwaway <path> (deletes it with the worktree)"
+      _wb_done_print_unknowns "$wt" "$pfx" "${unknowns[@]}"
+      echo "wb done: add each to wb-done-sweep.list (keep: or throwaway:) beside wb.sh, or re-run with --keep $pfx<path> (copies it into the task's dossier) or --throwaway $pfx<path> (deletes it with the worktree)"
     } >&2
     return 1
   fi
   return 0
+}
+
+# _wb_done_classify_wt <quiet> <repo> <extra repos> <worktree> <main> [--keep p|--throwaway p]...
+# — classify one worktree of the task and copy its lists out of the globals
+# _wb_done_classify refills, into the caller's done_keep[<worktree>] /
+# done_throw[<worktree>] (newline-joined: the classifier refuses names with
+# line breaks). <repo> is empty for the primary, else the extra's repo, and
+# <extra repos> the task's extra repos, space-separated. A flag path written
+# `<repo>:<path>` with <repo> one of those belongs to that extra; any other
+# path belongs to the primary. Each worktree gets only its own flags.
+_wb_done_classify_wt() {
+  local quiet="$1" key="$2" repos="$3" wt="$4" main="$5"; shift 5
+  local flag p r
+  local -a own=()
+  while [ $# -ge 2 ]; do
+    flag="$1"; p="$2"; shift 2
+    r=""
+    if [[ $p == *:* ]]; then
+      r="${p%%:*}"
+      [[ " $repos " == *" $r "* ]] || r=""
+    fi
+    if [ -n "$r" ]; then
+      [ "$r" != "$key" ] || own+=("$flag" "${p#*:}")
+    elif [ -z "$key" ]; then
+      own+=("$flag" "$p")
+    fi
+  done
+  _wb_done_classify "$quiet" "$wt" "$main" "${key:+$key:}" ${own[@]+"${own[@]}"} || return 1
+  local IFS=$'\n'
+  done_keep["$wt"]="${keep_paths[*]}"
+  done_throw["$wt"]="${throw_paths[*]}"
+  return 0
+}
+
+# _wb_done_registered_guard <repo dir> <worktree> — a folder git no longer
+# lists as a worktree (a `git worktree remove` that half-failed, say on
+# root-owned files, can drop git's record yet leave the folder) can't be
+# sorted or removed the normal way; say so and exit 1, before the dirty check
+# would read the enclosing repo's status instead.
+_wb_done_registered_guard() {
+  local repo_dir="$1" wt="$2" wt_list wt_real
+  if wt_list="$(git -C "$repo_dir" worktree list --porcelain 2>/dev/null)"; then
+    wt_real="$(realpath -m -- "$wt")"
+    if ! printf '%s\n' "$wt_list" | grep -qxF -e "worktree $wt" -e "worktree $wt_real"; then
+      echo "wb done: $wt is no longer a git worktree (a removal half-failed?); check what's left in it, delete it by hand, then run git worktree prune and re-run" >&2
+      exit 1
+    fi
+  fi
 }
 
 # _wb_done_leaf_state <src> <dest> — compare one non-directory entry with its
@@ -6880,6 +6935,14 @@ cmd_done() {
   fi
 
   local repo_dir worktree_path
+  # Every worktree to sort, keep from and remove (KTD10): the primary first
+  # when it is on disk, then each extra (worktrees:) on disk. wt_keys holds ""
+  # for the primary and the repo for an extra; wt_names the CODE_DIR-relative
+  # path the handoff names. ex_gone lists extras already missing, skipped with
+  # a note so a retry after a half-finished run works; an invalid entry is
+  # noted by _wb_task_worktrees and never touched.
+  local -a wt_paths=() wt_keys=() wt_names=() ex_gone=() wt_removed=()
+  local ex_repos="" e i
   if [ "$store_only" = 0 ]; then
     # worktree_rel/slug derived from the TASK FILE's own frontmatter, never
     # from @wb_repo/@wb_slug directly — a migrated child's worktree:/branch:
@@ -6902,49 +6965,58 @@ cmd_done() {
       exit 1
     fi
 
-    # A folder git no longer lists as a worktree (a `git worktree remove` that
-    # half-failed, say on root-owned files, can drop git's record yet leave the
-    # folder) can't be sorted or removed the normal way; say so, before the
-    # dirty check would read the enclosing repo's status instead.
     if [ -d "$worktree_path" ]; then
-      local wt_list wt_real
-      if wt_list="$(git -C "$repo_dir" worktree list --porcelain 2>/dev/null)"; then
-        wt_real="$(realpath -m -- "$worktree_path")"
-        if ! printf '%s\n' "$wt_list" | grep -qxF -e "worktree $worktree_path" -e "worktree $wt_real"; then
-          echo "wb done: $worktree_path is no longer a git worktree (a removal half-failed?); check what's left in it, delete it by hand, then run git worktree prune and re-run" >&2
-          exit 1
-        fi
-      fi
+      _wb_done_registered_guard "$repo_dir" "$worktree_path"
+      wt_paths+=("$worktree_path"); wt_keys+=(""); wt_names+=("$repo/$worktree_rel")
     fi
+    while IFS= read -r e; do
+      ex_repos+="${ex_repos:+ }${e%%/*}"
+      if [ -d "$CODE_DIR/$e" ]; then
+        _wb_done_registered_guard "$CODE_DIR/${e%%/*}" "$CODE_DIR/$e"
+        wt_paths+=("$CODE_DIR/$e"); wt_keys+=("${e%%/*}"); wt_names+=("$e")
+      else
+        ex_gone+=("$e")
+      fi
+    done < <(_wb_task_worktrees "$task_file")
 
     # 1. fail fast — never mutate anything on a dirty tree.
-    _wb_git_dirty_guard "$worktree_path" "wb done"
+    for e in ${wt_paths[@]+"${wt_paths[@]}"}; do _wb_git_dirty_guard "$e" "wb done"; done
+    for e in ${ex_gone[@]+"${ex_gone[@]}"}; do echo "wb done: $e is not on disk — skipped"; done
   fi
 
   # Steps 2-4 (sort the gitignored entries, copy the keepers, remove the
   # worktree) are meaningless for a store-only close — a session-less parent
   # never had a worktree to sweep or remove (KTD7: "no sweep, worktree, or
   # session teardown"). Only the shared status/closed/Handoffs burst below
-  # applies to it. keep_paths/throw_paths are filled by _wb_done_classify and
-  # read again by the handoff record below.
-  local -a keep_paths=() throw_paths=()
-  local ny_locked=0
+  # applies to it. keep_paths/throw_paths are filled by _wb_done_classify, and
+  # copied per worktree into done_keep/done_throw by _wb_done_classify_wt;
+  # all_keep/all_throw (an extra's paths written <repo>:<path>) are read again
+  # by the handoff record below.
+  local -a keep_paths=() throw_paths=() all_keep=() all_throw=() wt_kp=() wt_tp=()
+  local -A done_keep=() done_throw=()
+  local ny_locked=0 wt_pfx x
   if [ "$store_only" = 1 ] && [ "${#sweep_flags[@]}" -gt 0 ]; then
     echo "wb done: --keep/--throwaway ignored: a store-only close has no worktree to sort" >&2
   fi
-  if [ "$store_only" = 0 ] && [ -d "$worktree_path" ]; then
-    # 2. classify EVERY gitignored entry before anything changes (KTD1): one
-    # unknown stops the run here. Under --review the first pass runs before the
-    # buffer so an unknown stops the run before Jet spends time in it; the
-    # second runs after it, because the worktree can change while the buffer is
-    # open, and only the second result is acted on.
-    _wb_done_classify 0 "$worktree_path" "$repo_dir" ${sweep_flags[@]+"${sweep_flags[@]}"} || exit 1
+  if [ "${#wt_paths[@]}" -gt 0 ]; then
+    # 2. classify EVERY gitignored entry of every worktree before anything
+    # changes (KTD1): one unknown stops the run here. Under --review the first
+    # pass runs before the buffer so an unknown stops the run before Jet spends
+    # time in it; the second runs after it, because a worktree can change while
+    # the buffer is open, and only the second result is acted on.
+    for i in "${!wt_paths[@]}"; do
+      _wb_done_classify_wt 0 "${wt_keys[i]}" "$ex_repos" "${wt_paths[i]}" "$CODE_DIR/${wt_keys[i]:-$repo}" \
+        ${sweep_flags[@]+"${sweep_flags[@]}"} || exit 1
+    done
     if [ "$review" = 1 ]; then
       wb_open_buffer "$task_file" || exit 1   # no lock held (W5, round-2 Decision 2)
       # An edit to a tracked file made while the buffer was open would be lost
       # to the forced removal below.
-      _wb_git_dirty_guard "$worktree_path" "wb done"
-      _wb_done_classify 1 "$worktree_path" "$repo_dir" ${sweep_flags[@]+"${sweep_flags[@]}"} || exit 1
+      for e in "${wt_paths[@]}"; do _wb_git_dirty_guard "$e" "wb done"; done
+      for i in "${!wt_paths[@]}"; do
+        _wb_done_classify_wt 1 "${wt_keys[i]}" "$ex_repos" "${wt_paths[i]}" "$CODE_DIR/${wt_keys[i]:-$repo}" \
+          ${sweep_flags[@]+"${sweep_flags[@]}"} || exit 1
+      done
     fi
 
     # 3. copy every keeper into the dossier BEFORE the removal (a keeper can sit
@@ -6955,19 +7027,28 @@ cmd_done() {
     # lock exits 75 with nothing touched. It is held to the marker's removal
     # at the end, not across the --review buffer above, which can stay open
     # for minutes and would starve /decide's marker writers.
+    # An extra's keepers go to the dossier's <repo>/ subfolder.
     wb_task_lock_acquire_guarded "needs-you-$task_stem" || exit $?
     ny_locked=1
     local dossier="$TASKS_DIR/dossiers/$task_stem"
-    _wb_done_keep_all "$worktree_path" "$dossier" ${keep_paths[@]+"${keep_paths[@]}"} || exit 1
+    for i in "${!wt_paths[@]}"; do
+      wt_kp=(); wt_tp=()
+      [ -z "${done_keep[${wt_paths[i]}]:-}" ] || mapfile -t wt_kp <<<"${done_keep[${wt_paths[i]}]}"
+      [ -z "${done_throw[${wt_paths[i]}]:-}" ] || mapfile -t wt_tp <<<"${done_throw[${wt_paths[i]}]}"
+      _wb_done_keep_all "${wt_paths[i]}" "$dossier${wt_keys[i]:+/${wt_keys[i]}}" ${wt_kp[@]+"${wt_kp[@]}"} || exit 1
+      wt_pfx="${wt_keys[i]:+${wt_keys[i]}:}"
+      for x in ${wt_kp[@]+"${wt_kp[@]}"}; do all_keep+=("$wt_pfx$x"); done
+      for x in ${wt_tp[@]+"${wt_tp[@]}"}; do all_throw+=("$wt_pfx$x"); done
+    done
 
-    # 4. remove the worktree BEFORE flipping status:
+    # 4. remove the worktrees BEFORE flipping status, the extras first:
     #    - flipping status to "done" before a possibly-failing removal would
     #      leave the store claiming done while the worktree still exists;
     #      removing first means status only ever reflects a real teardown.
-    #    - this is the only deletion, and the guard above (`[ -d ]`) makes a
-    #      retry safe after a prior run was killed between removal and
-    #      status-set: `git worktree remove` on an already-gone path hard-fails
-    #      under set -e otherwise.
+    #    - this is the only deletion, and only worktrees found on disk above
+    #      are in wt_paths, which makes a retry safe after a prior run was
+    #      killed between removals or before status-set: `git worktree remove`
+    #      on an already-gone path hard-fails under set -e otherwise.
     #    Branch is kept — see logs/decisions/2026-07-06-review-outstanding.md Q2.
     #    The tmux session is deliberately left alive by default — wb done tears
     #    down the worktree, not the window you're sitting in (2026-07-08: "I
@@ -6976,11 +7057,20 @@ cmd_done() {
     # Explicit check: the ctrl-x picker runs cmd_done as `cmd_done ... || rc=$?`
     # inside `$( )`, a context where bash ignores `set -e` — so every step whose
     # failure must stop the run is guarded by hand, not by errexit.
-    git -C "$repo_dir" worktree remove "$worktree_path" --force \
-      || { echo "wb done: could not remove $worktree_path (task left as is)" >&2; exit 1; }
+    for i in "${!wt_paths[@]}"; do
+      [ -n "${wt_keys[i]}" ] || continue
+      git -C "$CODE_DIR/${wt_keys[i]}" worktree remove "${wt_paths[i]}" --force \
+        || { echo "wb done: could not remove ${wt_paths[i]} (task left as is)" >&2; exit 1; }
+      wt_removed+=("${wt_names[i]}")
+    done
+    if [ -z "${wt_keys[0]}" ]; then
+      git -C "$repo_dir" worktree remove "$worktree_path" --force \
+        || { echo "wb done: could not remove $worktree_path (task left as is)" >&2; exit 1; }
+      wt_removed+=("${wt_names[0]}")
+    fi
   elif [ "$review" = 1 ]; then
-    # Store-only close, or a retry after the worktree is already gone: nothing
-    # to sort, but --review still opens the task file once.
+    # Store-only close, or a retry after every worktree is already gone:
+    # nothing to sort, but --review still opens the task file once.
     wb_open_buffer "$task_file" || exit 1
   fi
 
@@ -7033,11 +7123,16 @@ cmd_done() {
   fi
   # R22: which gitignored entries went to the dossier and which were deleted.
   local handoff_msg="$done_note."
-  if [ "${#keep_paths[@]}" -gt 0 ]; then
-    handoff_msg+=$'\n'"kept: $(_wb_done_join "${keep_paths[@]}")"
+  # A task with extras says which worktrees went and which were already gone.
+  if [ -n "$ex_repos" ]; then
+    [ "${#wt_removed[@]}" -eq 0 ] || handoff_msg+=$'\n'"worktrees removed: $(_wb_done_join "${wt_removed[@]}")"
+    [ "${#ex_gone[@]}" -eq 0 ] || handoff_msg+=$'\n'"worktrees already gone: $(_wb_done_join "${ex_gone[@]}")"
   fi
-  if [ "${#throw_paths[@]}" -gt 0 ]; then
-    handoff_msg+=$'\n'"discarded: $(_wb_done_join "${throw_paths[@]}")"
+  if [ "${#all_keep[@]}" -gt 0 ]; then
+    handoff_msg+=$'\n'"kept: $(_wb_done_join "${all_keep[@]}")"
+  fi
+  if [ "${#all_throw[@]}" -gt 0 ]; then
+    handoff_msg+=$'\n'"discarded: $(_wb_done_join "${all_throw[@]}")"
   fi
   wb_append_handoff "$task_file" "wb done" "$handoff_msg" \
     || { wb_task_lock_release "$task_file"; echo "$lock_fail (handoff not written)" >&2; exit 1; }
