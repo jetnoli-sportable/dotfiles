@@ -174,8 +174,8 @@
 #                                    never creates it), tmux-free; with no <task>, the current
 #                                    tmux session's @task (an error outside tmux)
 #   wb review [--no-open] [--task] [<task>]
-#                                    open <task>'s local diff-review page (wb-store review) in an
-#                                    app window, starting its server when none of this build runs;
+#                                    open <task>'s local diff-review page (wb-store review) in a
+#                                    browser tab, starting its server when none of this build runs;
 #                                    refuses a task with no worktree on disk (an extra worktree
 #                                    from `wb worktree add` counts). With no <task>, the
 #                                    current tmux session's @task
@@ -8677,19 +8677,6 @@ cmd_page() {
 # The first of the ten ports `wb-store review` binds from, and probes cover.
 WB_REVIEW_PORT="${WB_REVIEW_PORT:-8776}"
 
-# _wb_review_open <url> — an app window (no tabs or address bar) in Chromium
-# when there is one, else the page server's opener order.
-_wb_review_open() {
-  local browser
-  for browser in chromium /snap/bin/chromium chromium-browser google-chrome; do
-    if command -v "$browser" >/dev/null; then
-      _wb_page_detach "$browser" --app="$1" >/dev/null 2>&1 </dev/null
-      return 0
-    fi
-  done
-  _wb_page_open "$1"
-}
-
 # cmd_review [--no-open] [--task] [<task-ref>] — print and open a task's
 # review page, starting `wb-store review` when no server of the current build
 # answers. A task with no worktree on disk (primary or extra), or an unsafe worktree: value, is refused. Resolution matches
@@ -8742,7 +8729,7 @@ cmd_review() {
   fi
   local url="http://127.0.0.1:$port/t/$stem"
   printf '%s\n' "$url"
-  [ "$no_open" = 1 ] || _wb_review_open "$url"
+  [ "$no_open" = 1 ] || _wb_page_open "$url"
 }
 
 # cmd_worktree add <repo> [<task-ref>] — give a task a worktree in another

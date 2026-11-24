@@ -1054,8 +1054,8 @@ one whose primary is gone but an extra worktree is still there opens.
 The review server is separate from the page server: it binds `127.0.0.1` from
 port 8776, falling forward up to 8785, so no agent-written dossier page shares
 its origin. `wb review` reuses it and restarts it the same way `wb page` does,
-logging to `~/.local/state/wb/review-server.log`. The page opens in a Chromium
-app window when Chromium is installed.
+logging to `~/.local/state/wb/review-server.log`. The page opens as a tab in
+your browser, the same way `wb page` opens a task page.
 
 The page has five views, on keys `1` to `5`:
 
