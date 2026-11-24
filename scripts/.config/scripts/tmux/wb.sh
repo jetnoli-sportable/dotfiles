@@ -172,8 +172,15 @@
 #   wb review [--no-open] [--task] [<task>]
 #                                    open <task>'s local diff-review page (wb-store review) in an
 #                                    app window, starting its server when none of this build runs;
-#                                    refuses a task with no worktree on disk. With no <task>, the
+#                                    refuses a task with no worktree on disk (an extra worktree
+#                                    from `wb worktree add` counts). With no <task>, the
 #                                    current tmux session's @task
+#   wb worktree add <repo> [<task>]  give <task> (default: the current session's) a worktree in
+#                                    <repo> on the task's branch, named like the primary's, with
+#                                    bootstrap files and the family CLAUDE.local.md, and record it
+#                                    in its worktrees: field; adopts one already there on the
+#                                    branch, refuses the primary's repo or a branch checked out
+#                                    elsewhere
 #   wb page [--no-open] [--task|--family] [<task>] | wb page [--no-open] --index
 #                                    open <task>'s page from wb-store's page server: its family
 #                                    page when it has children, else its task page (--task or
@@ -1756,6 +1763,47 @@ _wb_safe_worktree_field() {
   return 0
 }
 
+# _wb_safe_worktrees_entry <entry> — 0 when <entry> is a well-formed
+# `worktrees:` item, `<repo>/.worktrees/<name>`: the repo part is one segment
+# of [A-Za-z0-9._-] (not `.` or `..`), split at the first `/.worktrees/`, and
+# `.worktrees/<name>` passes _wb_safe_worktree_field. The same rule as
+# wb-store's Go validator, so both readers accept the same entries.
+_wb_safe_worktrees_entry() {
+  local entry="$1" repo rest
+  case "$entry" in */.worktrees/?*) ;; *) return 1 ;; esac
+  repo="${entry%%/.worktrees/*}"
+  rest=".worktrees/${entry#*/.worktrees/}"
+  case "$repo" in ''|.|..|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  _wb_safe_worktree_field "$rest"
+}
+
+# _wb_task_worktrees <task_file> [quiet] — a task's valid `worktrees:`
+# entries, one `<repo>/.worktrees/<name>` per line. An entry that is
+# malformed, repeats a repo, or names the primary's repo is skipped with a
+# note on stderr (none when the second argument is `quiet`, for scans over
+# every task file).
+_wb_task_worktrees() {
+  local file="$1" quiet="${2:-}" raw primary item
+  raw="$(wb_get_frontmatter "$file" worktrees)"
+  raw="${raw%%[[:space:]]#*}"
+  [[ "$raw" == *[![:space:]]* ]] || return 0
+  primary="$(wb_get_frontmatter "$file" repo)"; read -r primary <<< "$primary"
+  local -A seen=()
+  local rest="$raw," key
+  while [ -n "$rest" ]; do
+    item="${rest%%,*}"; rest="${rest#*,}"
+    read -r item <<< "$item"
+    [ -n "$item" ] || continue
+    key="${item%%/*}"
+    if ! _wb_safe_worktrees_entry "$item" || [ "$key" = "$primary" ] || [ -n "${seen[$key]:-}" ]; then
+      [ "$quiet" = quiet ] || echo "wb: skipping worktrees: entry '$item' in $(basename -- "$file") (malformed, repeated repo, or the primary's repo)" >&2
+      continue
+    fi
+    seen[$key]=1
+    printf '%s\n' "$item"
+  done
+}
+
 # _wb_task_wt_slug <task_file> <repo> — the worktree slug a resume of this task
 # uses (cmd_new's override path): worktree: without `.worktrees/` when
 # _wb_safe_worktree_field accepts it, else the stem's own slug. The session is
@@ -2654,14 +2702,23 @@ wb_branch_has_open_pr() {
 #   - orphaned worktree: a real git worktree with no task file pointing at it
 #   - missing worktree: a task file's worktree: field points nowhere
 # wb_worktree_has_task <repo> <rel_worktree> — true if some task file's
-# repo:/worktree: pair matches exactly. Shared by cmd_reconcile's orphan
+# repo:/worktree: pair matches exactly, or one of its valid worktrees: entries
+# is <repo>/<rel_worktree>. Shared by cmd_reconcile's orphan
 # detection and /board's untracked-worktree rows (U4) — same question,
 # asked from two call sites, must never drift out of sync.
 wb_worktree_has_task() {
   local repo="$1" rel="$2" tf
+  local extra e
   while IFS= read -r tf; do
-    [ "$(wb_get_frontmatter "$tf" repo)" = "$repo" ] || continue
-    [ "$(wb_get_frontmatter "$tf" worktree)" = "$rel" ] && return 0
+    if [ "$(wb_get_frontmatter "$tf" repo)" = "$repo" ] \
+        && [ "$(wb_get_frontmatter "$tf" worktree)" = "$rel" ]; then
+      return 0
+    fi
+    extra="$(wb_get_frontmatter "$tf" worktrees)"
+    [[ "$extra" == *[![:space:]]* ]] || continue
+    while IFS= read -r e; do
+      [ "$e" = "$repo/$rel" ] && return 0
+    done < <(_wb_task_worktrees "$tf" quiet)
   done < <(wb_task_files)
   return 1
 }
@@ -3862,9 +3919,12 @@ _wb_breakdown_execute() {
     p_worktree="$(wb_get_frontmatter "$parent_file" worktree)"
     wb_set_frontmatter "$target_file" branch "$p_branch"
     wb_set_frontmatter "$target_file" worktree "$p_worktree"
+    local p_worktrees; p_worktrees="$(wb_get_frontmatter "$parent_file" worktrees)"
+    [ -z "$p_worktrees" ] || wb_set_frontmatter "$target_file" worktrees "$p_worktrees"
     [ "$(wb_get_frontmatter "$target_file" status)" != planned ] || wb_set_frontmatter "$target_file" status doing
     wb_set_frontmatter "$parent_file" branch ""
     wb_set_frontmatter "$parent_file" worktree ""
+    [ -z "$p_worktrees" ] || wb_set_frontmatter "$parent_file" worktrees ""
     migration_target_file="$target_file"
     did_something=1
   done <<< "$actions"
@@ -5581,7 +5641,7 @@ cmd_set() {
       echo "wb set: 'status' is not settable via \`wb set\` — use \`wb status\`/\`wb done\` instead" >&2
       exit 1
       ;;
-    created|closed|reviewed|claude_sessions|repo|worktree)
+    created|closed|reviewed|claude_sessions|repo|worktree|worktrees)
       echo "wb set: '$field' is not settable via \`wb set\` (tooling-owned field)" >&2
       exit 1
       ;;
@@ -8479,7 +8539,7 @@ _wb_review_open() {
 
 # cmd_review [--no-open] [--task] [<task-ref>] — print and open a task's
 # review page, starting `wb-store review` when no server of the current build
-# answers. A task with no worktree on disk, or an unsafe worktree: value, is refused. Resolution matches
+# answers. A task with no worktree on disk (primary or extra), or an unsafe worktree: value, is refused. Resolution matches
 # cmd_page: a <task-ref> needs no tmux, none (or an empty one, as the
 # prefix+R bind passes for a session without @task) means the session's @task.
 # --task is accepted for the bind's sake and changes nothing.
@@ -8496,14 +8556,21 @@ cmd_review() {
     shift
   done
   if [ $# -gt 1 ]; then echo "$usage" >&2; return 1; fi
-  local file stem repo wt
+  local file stem repo wt on_disk=0 e
   file="$(_wb_resolve_task_arg "${1:-}" "wb review" "$usage")" || return 1
   stem="$(basename "$file" .md)"
   repo="$(wb_get_frontmatter "$file" repo)"
   wt="$(wb_get_frontmatter "$file" worktree)"
   read -r repo <<< "$repo"
   read -r wt <<< "$wt"
-  if [ -z "$repo" ] || [ -z "$wt" ] || ! _wb_safe_worktree_field "$wt" || [ ! -d "$(wb_repo_dir "$repo")/$wt" ]; then
+  if [ -n "$repo" ] && [ -n "$wt" ] && _wb_safe_worktree_field "$wt" && [ -d "$(wb_repo_dir "$repo")/$wt" ]; then
+    on_disk=1
+  else
+    while IFS= read -r e; do
+      [ -d "$CODE_DIR/$e" ] && { on_disk=1; break; }
+    done < <(_wb_task_worktrees "$file")
+  fi
+  if [ "$on_disk" = 0 ]; then
     echo "wb review: $stem has no worktree on disk — nothing to review" >&2
     return 1
   fi
@@ -8523,6 +8590,83 @@ cmd_review() {
   local url="http://127.0.0.1:$port/t/$stem"
   printf '%s\n' "$url"
   [ "$no_open" = 1 ] || _wb_review_open "$url"
+}
+
+# cmd_worktree add <repo> [<task-ref>] — give a task a worktree in another
+# repo (KTD2): create or adopt it first, record it in `worktrees:` last, so a
+# failure in between leaves an unlisted worktree that a re-run adopts.
+cmd_worktree() {
+  local usage="usage: wb worktree add <repo> [<task-ref>]"
+  if [ "${1:-}" != add ] || [ $# -lt 2 ] || [ $# -gt 3 ]; then echo "$usage" >&2; return 1; fi
+  local repo="$2" file stem primary_repo wt branch name entry repo_dir path e
+  case "$repo" in ''|.|..|*[!A-Za-z0-9._-]*)
+    echo "wb worktree: '$repo' is not a repo name" >&2; return 1 ;;
+  esac
+  file="$(_wb_resolve_task_arg "${3:-}" "wb worktree" "$usage")" || return 1
+  stem="$(basename -- "$file" .md)"
+  primary_repo="$(wb_get_frontmatter "$file" repo)"; read -r primary_repo <<< "$primary_repo"
+  wt="$(wb_get_frontmatter "$file" worktree)"; read -r wt <<< "$wt"
+  branch="$(wb_get_frontmatter "$file" branch)"; read -r branch <<< "$branch"
+  repo_dir="$(wb_repo_dir "$repo")"
+  if [ "$repo" = "$primary_repo" ]; then
+    echo "wb worktree: $repo is $stem's own repo — its worktree is the primary" >&2; return 1
+  fi
+  if [ ! -e "$repo_dir/.git" ]; then
+    echo "wb worktree: $repo_dir is not a git repo" >&2; return 1
+  fi
+  if [ -z "$wt" ] || ! _wb_safe_worktree_field "$wt" || [ -z "$branch" ]; then
+    echo "wb worktree: $stem has no usable worktree:/branch: to copy" >&2; return 1
+  fi
+  name="${wt#.worktrees/}"
+  entry="$repo/.worktrees/$name"
+  while IFS= read -r e; do
+    if [ "${e%%/*}" = "$repo" ] && [ "$e" != "$entry" ]; then
+      echo "wb worktree: $stem already lists $e for $repo — remove that entry first" >&2; return 1
+    fi
+  done < <(_wb_task_worktrees "$file")
+
+  path="$repo_dir/.worktrees/$name"
+  local adopted=0
+  if [ -e "$path" ]; then
+    local real_path reg_branch reg_path
+    real_path="$(cd "$repo_dir" && pwd -P)/.worktrees/$name"
+    while IFS=$'\t' read -r reg_branch reg_path; do
+      if [ "$reg_path" = "$real_path" ] && [ "$reg_branch" = "$branch" ]; then adopted=1; break; fi
+    done < <(wb_repo_worktrees "$(cd "$repo_dir" && pwd -P)")
+    if [ "$adopted" = 0 ]; then
+      echo "wb worktree: $path exists but is not a registered worktree of $repo on branch '$branch' — refusing to use it" >&2
+      return 1
+    fi
+  else
+    _wb_new_add_worktree "$repo_dir" "$repo" "${stem#"${primary_repo}--"}" "$branch" "$path" "$file" "" \
+      || return 1
+  fi
+
+  wb_bootstrap "$repo_dir" "$path" \
+    || { echo "wb worktree: bootstrap of gitignored files into $path failed — re-run to adopt it" >&2; return 1; }
+  wb_ensure_repo_ignore "$path" \
+    || { echo "wb worktree: could not register the ignore rule for $repo_dir — re-run to adopt $path" >&2; return 1; }
+  _wb_seed_concepts_file "$file" "$path" \
+    || { echo "wb worktree: could not write CLAUDE.local.md in $path — re-run to adopt it" >&2; return 1; }
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || return $?
+  local raw cur="" item rest listed=0
+  raw="$(wb_get_frontmatter "$file" worktrees)"
+  raw="${raw%%[[:space:]]#*}"
+  rest="$raw,"
+  while [ -n "$rest" ]; do
+    item="${rest%%,*}"; rest="${rest#*,}"
+    read -r item <<< "$item"
+    [ -n "$item" ] || continue
+    [ "$item" != "$entry" ] || listed=1
+    cur="${cur:+$cur, }$item"
+  done
+  if [ "$listed" = 0 ]; then
+    wb_set_frontmatter_field "$file" worktrees "${cur:+$cur, }$entry" worktree
+  fi
+  wb_task_lock_release "$file"
+  echo "wb worktree: $stem worktrees: $entry ($([ "$adopted" = 1 ] && echo adopted || echo created))"
 }
 
 # ---------------------------------------------------------------------------
@@ -9127,6 +9271,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     notes)       shift; cmd_notes "$@" ;;
     page)        shift; cmd_page "$@" ;;
     review)      shift; cmd_review "$@" ;;
+    worktree)    shift; cmd_worktree "$@" ;;
     jira-set)    shift; cmd_jira_set "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;

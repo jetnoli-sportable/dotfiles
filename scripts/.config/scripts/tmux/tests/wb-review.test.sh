@@ -119,6 +119,21 @@ for t in dotfiles--no-field dotfiles--gone-dir dotfiles--climbs dotfiles--absolu
   assert_eq "$t: started nothing" "" "$(cat "$SERVE_LOG")"
 done
 
+echo "# a task whose primary worktree is missing but whose extra exists: the page opens"
+mkdir -p "$CODE_DIR/other/.worktrees/with-wt"
+printf -- '---\nstatus: doing\nrepo: dotfiles\nworktree: .worktrees/not-on-disk\nworktrees: other/.worktrees/with-wt\n---\n# x\n' > "$TASKS_DIR/dotfiles--extra-only.md"
+reset; HEALTHZ[8776]="$(hz wb-store-review "$BUILD_ID")"
+out=$(cmd_review --no-open dotfiles--extra-only 2>&1); rc=$?
+assert_eq "extra only: exit 0" 0 "$rc"
+assert_eq "extra only: the task's review URL" "http://127.0.0.1:8776/t/dotfiles--extra-only" "$out"
+echo "# ... and refuses when the listed extra is missing too, or its entry is invalid"
+printf -- '---\nstatus: doing\nrepo: dotfiles\nworktree: .worktrees/not-on-disk\nworktrees: other/.worktrees/gone, ../x/.worktrees/with-wt\n---\n# x\n' > "$TASKS_DIR/dotfiles--extra-gone.md"
+mkdir -p "$CODE_DIR/../x/.worktrees/with-wt"
+reset
+out=$(cmd_review --no-open dotfiles--extra-gone 2>&1); rc=$?
+assert_eq "extra gone: exit 1" 1 "$rc"
+assert "extra gone: says it has no worktree" "no worktree on disk" "$out"
+
 echo "# inside a task session with no argument: the session's @task"
 reset; export TMUX=fake STUB_TASK="$TASKS_DIR/dotfiles--with-wt.md"
 HEALTHZ[8776]="$(hz wb-store-review "$BUILD_ID")"
