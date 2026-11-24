@@ -9,9 +9,10 @@
 # GNOME bridges the X clipboard to Wayland apps, and xclip needs no focus.
 #
 # xclip only needs a valid XAUTHORITY. The tmux server outlives a logout
-# (linger, #123), so panes can inherit a key file from an earlier login that
-# no longer exists; when the inherited one is gone, use the newest key mutter
-# wrote for this login.
+# (linger, #123), so panes can inherit a key file from an earlier login. That
+# file can still exist (mutter leaves old ones behind), so an inherited mutter
+# key isn't trusted: use the newest key mutter wrote, which is this login's.
+# A non-mutter key (a plain X11 login) is kept while it's readable.
 set -uo pipefail
 
 case "${1:-}" in
@@ -20,12 +21,18 @@ case "${1:-}" in
 esac
 
 live_xauthority() {
-  if [ -n "${XAUTHORITY:-}" ] && [ -r "$XAUTHORITY" ]; then
-    printf '%s' "$XAUTHORITY"
-    return
-  fi
-  local run="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-  ls -t "$run"/.mutter-Xwaylandauth.* 2>/dev/null | head -n 1
+  case "${XAUTHORITY:-}" in
+    */.mutter-Xwaylandauth.*) ;;
+    *)
+      if [ -n "${XAUTHORITY:-}" ] && [ -r "$XAUTHORITY" ]; then
+        printf '%s' "$XAUTHORITY"
+        return
+      fi
+      ;;
+  esac
+  local run="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" newest
+  newest="$(ls -t "$run"/.mutter-Xwaylandauth.* 2>/dev/null | head -n 1)"
+  printf '%s' "${newest:-${XAUTHORITY:-}}"
 }
 
 if command -v xclip >/dev/null; then

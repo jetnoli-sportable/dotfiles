@@ -57,6 +57,10 @@ printf 'hi' | run_clip XAUTHORITY="$SANDBOX/live-key" DISPLAY=:1 -- copy
 assert_eq "live XAUTHORITY and DISPLAY: kept as they are" \
   "xclip -selection clipboard -i | XAUTHORITY=$SANDBOX/live-key DISPLAY=:1 | stdin=hi" "$(cat "$LOG")"
 
+printf 'old' | run_clip XAUTHORITY="$RUN/.mutter-Xwaylandauth.OLD111" -- copy
+assert_eq "an earlier login's mutter key that still exists: replaced by the newest" \
+  "xclip -selection clipboard -i | XAUTHORITY=$RUN/.mutter-Xwaylandauth.NEW222 DISPLAY=:0 | stdin=old" "$(cat "$LOG")"
+
 printf 'x' | run_clip -- copy
 assert_eq "no XAUTHORITY at all: the newest mutter key is used" \
   "xclip -selection clipboard -i | XAUTHORITY=$RUN/.mutter-Xwaylandauth.NEW222 DISPLAY=:0 | stdin=x" "$(cat "$LOG")"
