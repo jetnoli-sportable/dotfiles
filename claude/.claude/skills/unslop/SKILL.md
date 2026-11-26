@@ -1,7 +1,6 @@
 ---
 name: unslop
-description: Cut AI tells from any writing.
-disable-model-invocation: true
+description: "Cut AI tells from any writing with 33 numbered rules, keeping every fact. Use when a skill says to write through ce-noslop, when asked to make prose plainer or check it for AI tells, and for pages, PR descriptions and reports."
 ---
 
 # Unslop

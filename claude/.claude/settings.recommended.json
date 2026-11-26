@@ -239,5 +239,8 @@
         ]
       }
     ]
+  },
+  "skillOverrides": {
+    "compound-engineering:ce-noslop": "off"
   }
 }
