@@ -1,4 +1,4 @@
-Vendored from github.com/cursor/plugins (harness/pstack/claude-code/skills/unslop, commit 2f87c85) on 2026-11-26.
+Vendored from github.com/cursor/plugins (harness/pstack/claude-code/skills/unslop, commit 2f87c85) on 2026-11-26. Changed here on 2026-11-26: a longer description, and Claude may load it by itself (it replaces ce-noslop).
 
 MIT License
 

@@ -87,6 +87,10 @@ When Jet asks what something means or why it matters, answer so each point stand
 - **End each point with the conclusion and a recommendation**, stated plainly: what it means for what we're building and what to do.
 - **Correct earlier wording explicitly** when a previous answer was wrong or loose, instead of quietly changing it.
 
+## Prose → unslop, not ce-noslop
+
+`unslop` replaces compound-engineering's `ce-noslop` everywhere (Jet, 2026-11-26). `ce-noslop` is switched off with `skillOverrides` in `~/.claude/settings.json`. When a skill tells you to write something through `ce-noslop` (`ce-plan`, `ce-pov`, `ce-code-review`, `ce-commit-push-pr`, `ce-brainstorm`, `ce-doc-review` and others do), load `unslop` with the Skill tool and apply its rules instead. Keep every fact, number, identifier, path and error text the source has: unslop changes the wording, never the content.
+
 ## Identifiers → always with a plain description
 
 Never show Jet a bare identifier: a commit SHA, a ticket number (SW-…, SFB-…), a PR number or link, a task slug, a run id or an artifact URL. Every one gets a short plain description of what it is, in the same sentence or table cell (asked for 2026-10-21, after "push `3ce3c41`?" with no word on what that commit held).
