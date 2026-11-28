@@ -302,7 +302,7 @@
 <p>The strategy page for the personal workflow: where things stand, which tool
 to reach for in which situation, what every piece is actually used for,
 and what comes next. Rewritten 2026-09-22 from the old status snapshot.
-The <a href="roadmap.html">Roadmap</a> still holds the long-form history. Usage
+The <a href="roadmap.html">Roadmap</a>, retired on 2026-11-28, holds the long-form history. Usage
 numbers come from Claude Code transcripts, 2026-07-01 → 2026-09-22.</p>
 <h2 id="at-a-glance">At a glance</h2>
 <p>The workbench is in daily use. <code>wb</code> runs one tmux session per worktree
@@ -703,7 +703,7 @@ into task files, and distinct transcripts that ran it through Bash.</p>
 <tr>
 <td><a href="roadmap.html">roadmap</a></td>
 <td>2026-07-18</td>
-<td><span class="chip warn">keep · stale</span>: long-form history; this page supersedes its &quot;Up next&quot;</td>
+<td><span class="chip mut">retired 2026-11-28</span>: long-form history; the dotfiles coordinator's plan replaces it</td>
 </tr>
 <tr>
 <td><a href="handoff-guide.html">handoff-guide</a></td>
@@ -770,6 +770,11 @@ stays where it fits: tmux, worktree and fzf glue.</li>
 deletion incident. <code>wb.sh</code> now only sets it if unset
 (<code>CODE_DIR=&quot;${CODE_DIR:-$HOME/code}&quot;</code>).</p>
 <h2 id="next-up">Next up</h2>
+<p>The plan for what comes next lives with the dotfiles coordinator (the task
+<code>dotfiles--coordinator</code> in the task store), not on this page; a product task
+will follow it. The list below is the 2026-09-22 one, kept for history.</p>
+<details>
+<summary>The 2026-09-22 "Next up" list (superseded)</summary>
 <p>The old &quot;Next up&quot; list, re-checked 2026-09-22. None of the three items had
 landed. Each is now either in the quick-fix batch or a task with its open
 decisions written down.</p>
@@ -802,6 +807,7 @@ real Epic hierarchy for emit.</li>
 <strong>replay-tui simplification</strong> (<code>replay-tui--replay-improvements</code>).</li>
 <li><strong>Personal/employer boundary rule</strong>: deliberately the last decision.</li>
 </ul>
+</details>
 <h2 id="shipped">Shipped</h2>
 <details>
 <summary><span class="chip ok">53 merged</span> PRs #11 → #63. Full history is on the linked recaps and the roadmap.</summary>

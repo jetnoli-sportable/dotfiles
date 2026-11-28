@@ -46,7 +46,7 @@ updated: 2026-11-15
 The strategy page for the personal workflow: where things stand, which tool
 to reach for in which situation, what every piece is actually used for,
 and what comes next. Rewritten 2026-09-22 from the old status snapshot.
-The [Roadmap](roadmap.html) still holds the long-form history. Usage
+The [Roadmap](roadmap.html), retired on 2026-11-28, holds the long-form history. Usage
 numbers come from Claude Code transcripts, 2026-07-01 → 2026-09-22.
 
 ## At a glance
@@ -256,7 +256,7 @@ into task files, and distinct transcripts that ran it through Bash.
 | [where-we-are](where-we-are.html) (this page) | 2026-09-22 | <span class="chip ok">keep</span>: the strategy page |
 | [try-it](try-it.html) · [ceremonies](ceremonies.html) · guides: [weekly-review](guides/weekly-review.html) · [park](guides/park.html) · [decide](guides/decide.html) | 2026-09-09 → 09-22 | <span class="chip ok">keep</span> |
 | [wb-guide](wb-guide.html) | 2026-08-24 | <span class="chip ok">keep</span>: its board section was rewritten for the rebuilt four-view board |
-| [roadmap](roadmap.html) | 2026-07-18 | <span class="chip warn">keep · stale</span>: long-form history; this page supersedes its "Up next" |
+| [roadmap](roadmap.html) | 2026-07-18 | <span class="chip mut">retired 2026-11-28</span>: long-form history; the dotfiles coordinator's plan replaces it |
 | [handoff-guide](handoff-guide.html) | 2026-07-19 | <span class="chip warn">keep · stale</span>: still documents pane mode, whose skill was removed in #52 |
 | [setup](setup.html) · [glossary](glossary.html) · [limitations](limitations.html) · [docgen](docgen.html) · [guide-format](guide-format.html) | 2026-07-07 → 07-14 | <span class="chip ok">keep</span> |
 | guides: [wb-save](guides/wb-save.html) · [wb-resume](guides/wb-resume.html) · [tasks-store-guards](guides/tasks-store-guards.html) · [help](guides/help.html) · [claude-tmux](guides/claude-tmux.html) · [notes-tui](guides/notes-tui.html) · [replay-tui](guides/replay-tui.html) | 2026-07-07 → 07-14 | <span class="chip ok">keep</span>. The workflow now lives here; replay-tui simplification is tracked in `replay-tui--replay-improvements` |
@@ -308,6 +308,13 @@ deletion incident. `wb.sh` now only sets it if unset
 
 ## Next up
 
+The plan for what comes next lives with the dotfiles coordinator (the task
+`dotfiles--coordinator` in the task store), not on this page; a product task
+will follow it. The list below is the 2026-09-22 one, kept for history.
+
+<details>
+<summary>The 2026-09-22 "Next up" list (superseded)</summary>
+
 The old "Next up" list, re-checked 2026-09-22. None of the three items had
 landed. Each is now either in the quick-fix batch or a task with its open
 decisions written down.
@@ -344,6 +351,8 @@ decisions written down.
 - **Implicit save/resume** (`dotfiles--feat-wb-implicit-handoff`) and
   **replay-tui simplification** (`replay-tui--replay-improvements`).
 - **Personal/employer boundary rule**: deliberately the last decision.
+
+</details>
 
 ## Shipped
 

@@ -1227,10 +1227,10 @@ in this PR:
   revival and an HTML-in-flow help dashboard. Separate, not-yet-started
   work.
 
-[`roadmap.md`](roadmap.html) *is* the overarching plan doc — build order,
-later-additions log, and the day-bookend design principle all live there
-already. It's had a status pass alongside this guide: §8 now marks slices
-1–3 done, and §9a carries the visibility-gap note above.
+[`roadmap.md`](roadmap.html) was the overarching plan doc (build order,
+later-additions log, the day-bookend design principle). It was retired on
+2026-11-28; the dotfiles coordinator's plan (task `dotfiles--coordinator`)
+replaces it.
 
 ## If something misbehaves
 
