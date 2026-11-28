@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # wb-locks.sh — per-task-file flock side-car lock primitives.
-# Sourced by wb.sh and handoff.sh the same way wb.sh sources lib.sh /
-# wb-lifecycle.sh — a sibling module (see wb-lifecycle.sh's own header for
-# that convention), side-effect-free on source: this file only defines
+# Sourced by wb.sh and handoff.sh the same way wb.sh sources lib.sh — a
+# sibling module, side-effect-free on source: this file only defines
 # functions below, no top-level command ever runs just by sourcing it.
 #
 # Design: docs/plans/2026-07-11-001-feat-tasks-dir-concurrency-safety-plan.md

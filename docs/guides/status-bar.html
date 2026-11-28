@@ -323,7 +323,7 @@ its command or file, the prompt's message), in or out of tmux. An approved
 prompt leaves no mark in the transcript, so this file is how prompts per week
 get counted; <code>wc -l</code> or <code>cut -f3 | sort | uniq -c</code> over a date range answers it.</p>
 <p>The count covers every pane in every tmux session, not just the one you're in.
-Use the wb picker (<code>prefix</code> + <code>a</code>) or <code>wb board</code> to find which ones.</p>
+Use the wb picker (<code>prefix</code> + <code>a</code>) to find which ones.</p>
 <h3 id="-the-behaviour-watcher-wants-you">⚑: the behaviour watcher wants you</h3>
 <p>The verify-behaviour watcher is a standing Claude session that checks shipped
 features in real use. When it records a check as <strong>broken</strong>, or proposes one as
@@ -379,8 +379,8 @@ tmux list-panes -a -F '#{session_name} #{@claude_blocked}' | grep -v ' $'   # wh
 </code></pre>
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
-<li><strong>✳ and ✔ don't say which session.</strong> The count is global; the picker or
-<code>wb board</code> tells you where.</li>
+<li><strong>✳ and ✔ don't say which session.</strong> The count is global; the picker
+tells you where.</li>
 <li><strong>⚑ resets on a tmux restart.</strong> The count lives in a tmux option, so a server
 restart clears it. The watcher's verdicts are kept in each feature's
 <code>verdicts.md</code>, and its next reply lists anything still open.</li>

@@ -19,7 +19,7 @@ directory instead of replacing it.
   `hooks/hooks.json`) behind decision auto-capture: a background model sweep drafts
   decisions a wb session never recorded, one file per decision, onto a per-task shelf.
   Nothing is injected into the agent's context. The drafts wait there (a `✎N` count shows
-  in the tmux status bar and on `wb board`) until Jet reviews them at `/wb-save`,
+  in the tmux status bar) until Jet reviews them at `/wb-save`,
   `/close-out`, `/wb-decide shelved` or the weekly review. It auto-loads as
   `wb-capture@skills-dir` once stowed. Adding/removing a hook entry needs a session
   restart; edits to the scripts it calls (`scripts/.config/scripts/tmux/wb-capture*.sh`)

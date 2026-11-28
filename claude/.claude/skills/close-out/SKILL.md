@@ -320,7 +320,7 @@ So when `--close` applies to the current session, say so **before** running
 the command, for example: "This will also kill the current tmux session,
 including any other window in it, like an nvim buffer with unsaved edits,
 once the wind-down finishes. You won't see a confirmation here after that;
-check `wb board` or the task file afterward." This is not an extra
+check the task file afterward." This is not an extra
 confirmation prompt (the user already asked for `--close`); it makes sure
 they know the full blast radius.
 

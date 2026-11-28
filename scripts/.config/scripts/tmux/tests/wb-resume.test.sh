@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tests for `wb resume <task>` (U3) — plain-bash assertions, same convention
-# as wb-board.test.sh. Sources wb.sh (safe: see the BASH_SOURCE guard at the
+# Tests for `wb resume <task>` (U3) — plain-bash assertions.
+# Sources wb.sh (safe: see the BASH_SOURCE guard at the
 # bottom of wb.sh) and stubs cmd_new so match resolution is tested without
 # touching real git worktrees or tmux.
 # Run: bash scripts/.config/scripts/tmux/tests/wb-resume.test.sh

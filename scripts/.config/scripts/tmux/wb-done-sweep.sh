@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # wb-done-sweep.sh — `wb done`'s sweep classifier: reads wb-done-sweep.list and
 # sorts a worktree's untracked and ignored paths into keep / throwaway / unknown
-# before teardown. Sourced by wb.sh the same way as wb-board.sh (a sibling module,
-# see wb-lifecycle.sh's header), split out of wb.sh verbatim (dotfiles--wb-sweep-own-file).
+# before teardown. Sourced by wb.sh as a sibling module, split out of wb.sh verbatim
+# (dotfiles--wb-sweep-own-file).
 # wb.sh sources it only if present, so every other wb command keeps working
 # between a merge and the re-stow that links this file.
 

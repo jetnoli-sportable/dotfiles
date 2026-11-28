@@ -185,10 +185,10 @@ assert_eq "ticket-parent --title: sets the H1 heading from the ticket summary" "
 # branch harmlessly rewrites a blank `reviewed:` -> `reviewed: ` on every
 # re-seed regardless of --jira, a pre-existing, unrelated quirk — scope
 # the assertion to what the fix actually claims: the body doesn't duplicate.)
-before_plan_reseed="$(wb_board_section "$ticket_file" "Plan")"
+before_plan_reseed="$(_wb_section_text "$ticket_file" "Plan")"
 out_reseed="$(printf '%s\n' "$jira_body" \
   | cmd_new --planned --jira 'https://sportable.atlassian.net/browse/SFB-1234' --body - proj feat-ticket-parent 2>&1)"
-assert_eq "ticket-parent re-run: ## Plan section unchanged (body not duplicated)" "$before_plan_reseed" "$(wb_board_section "$ticket_file" "Plan")"
+assert_eq "ticket-parent re-run: ## Plan section unchanged (body not duplicated)" "$before_plan_reseed" "$(_wb_section_text "$ticket_file" "Plan")"
 body_occurrences="$(grep -c 'ticket description line 1' "$ticket_file")"
 assert_eq "ticket-parent re-run: body appears exactly once" 1 "$body_occurrences"
 

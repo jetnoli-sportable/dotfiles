@@ -84,7 +84,7 @@ broken when: the decision was recorded and no child received a message
   The regex is a jq (Oniguruma) regex, written between the first and the last
   `/` on the line. An invalid regex never matches.
 - **evidence:** where to look when judging. It may name a read-only command
-  (`wb board --json`, `tmux show -gv status-right`). A command is never a
+  (`wb-store show <task> --json`, `tmux show -gv status-right`). A command is never a
   trigger, because there is nothing to poll.
 - **met when:** the observable condition, written so a quote can show it.
 - **broken when:** the observable failure. If the watcher sees it, it records

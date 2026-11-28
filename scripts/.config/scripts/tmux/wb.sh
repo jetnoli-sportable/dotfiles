@@ -18,8 +18,6 @@
 #   wb                               the picker (replaces s + ca)
 #   wb help                          this verb list (also --help/-h); any other unknown
 #                                    token exits 2 rather than opening the picker
-#   wb board                         task-store status table (interim /board); --html writes the
-#                                    ratified 3-view page to logs/board.html (feat-board-build)
 #   wb done [--close] [--leave-shelved] [--review] [--keep <path>] [--throwaway <path>] [<session>]
 #                                    safe wind-down (defaults to the current session); --close also kills the tmux
 #                                    session; refuses while shelved decision drafts (wb-capture) of the task
@@ -230,12 +228,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"   # for fzf reload/become to re-invoke us
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
-# shellcheck source=wb-lifecycle.sh
-source "$SCRIPT_DIR/wb-lifecycle.sh"
 # shellcheck source=wb-locks.sh
 source "$SCRIPT_DIR/wb-locks.sh"
-# shellcheck source=wb-board.sh
-source "$SCRIPT_DIR/wb-board.sh"
 # Only if present: wb.sh is stowed file by file, so between a merge and the
 # re-stow that links this new file it is missing. `wb done` checks for its
 # functions and stops before teardown; every other verb is unaffected.
@@ -246,7 +240,7 @@ TASKS_DIR="${TASKS_DIR:-$HOME/code/tasks}"
 CODE_DIR="${CODE_DIR:-$HOME/code}"
 WB_SWEEP_THRESHOLD="${WB_SWEEP_THRESHOLD:-5}"   # follow-ups+parked count that triggers the nudge
 # Same default the claude() wrapper (zsh/.zshrc) warns at — set once here so
-# wb.sh's own displays (picker header, wb board) can't drift to a different
+# wb.sh's own displays (the picker header) can't drift to a different
 # fallback than the three call sites below used to inline separately.
 WB_AGENT_WARN_AT="${WB_AGENT_WARN_AT:-8}"
 
@@ -269,9 +263,7 @@ WB_COL_AGE=4
 
 # wb_get_frontmatter_text <key> — same extraction as wb_get_frontmatter, but
 # reads the frontmatter-bearing content from stdin instead of a file path —
-# for a kept-branch `git show <branch>:<path>` blob, which has no path on
-# disk to hand a file-based reader (wb-lifecycle.sh's kept-branch fallback,
-# R6/R8).
+# for a blob that has no path on disk to hand a file-based reader.
 wb_get_frontmatter_text() {
   awk -v key="$1" '
     BEGIN { infm = 0 }
@@ -828,10 +820,9 @@ wb_session_task_file() {
 # target) gets silently collapsed into one delimiter and every field after
 # it shifts left. awk's -F'\t' has no such behavior — fields stay put.
 #
-# perf(wb-board): pure-bash split, no awk fork. This runs twice per task in
-# the board's collect + model passes (~700 awk execs on the real store), and
-# an awk exec from a large bash costs more than the whole string walk. It
-# keeps awk's record semantics exactly — one record per input line, an empty
+# perf: pure-bash split, no awk fork. This runs per task in store-wide
+# passes, and an awk exec from a large bash costs more than the whole string
+# walk. It keeps awk's record semantics exactly — one record per input line, an empty
 # line has no fields (NF=0), every other line yields all its tab-separated
 # fields including empty ones — and splits with ${%%}/${#} slicing rather than
 # `IFS=$'\t' read`, for the whitespace-collapsing reason above.
@@ -2355,7 +2346,7 @@ cmd_new() {
   # while giving it a valid target-pane shape.
   tmux set-option -t "=$session:" @wb_repo "$repo" >/dev/null
   tmux set-option -t "=$session:" @wb_slug "$wt_slug" >/dev/null
-  # The real git branch, for branch-keyed lookups (wb_board_live_session_for):
+  # The real git branch, for branch-keyed lookups:
   # @wb_slug is the worktree slug, which differs from branch: on an adopted
   # task (feat/x in .worktrees/feat-x or a stem-named dir).
   tmux set-option -t "=$session:" @wb_branch "$branch" >/dev/null
@@ -2972,8 +2963,7 @@ cmd_reconcile() {
 # records are files in its own dossier, and two tasks are merged by hand.
 # ---------------------------------------------------------------------------
 
-# wb_reconcile_report_path — logs/reconcile.md in THIS repo (dotfiles),
-# same convention as wb_board_render_html's logs/board.html.
+# wb_reconcile_report_path — logs/reconcile.md in THIS repo (dotfiles).
 wb_reconcile_report_path() {
   local root
   root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
@@ -3927,9 +3917,9 @@ _wb_breakdown_execute() {
     local -a f; wb_tsv_split "$line" f
     [ "${f[0]}" = plan_rewrite ] || continue
     local body; body="$(_wb_breakdown_parent_plan_body "$path")"
-    local before_plan; before_plan="$(wb_board_section "$parent_file" "Plan")"
+    local before_plan; before_plan="$(_wb_section_text "$parent_file" "Plan")"
     _wb_breakdown_replace_section "$parent_file" "Plan" "$body"
-    local after_plan; after_plan="$(wb_board_section "$parent_file" "Plan")"
+    local after_plan; after_plan="$(_wb_section_text "$parent_file" "Plan")"
     [ "$before_plan" = "$after_plan" ] || did_something=1
   done <<< "$actions"
 
@@ -4315,13 +4305,11 @@ cmd_pause() {
 # ephemeral (/tmp/compound-engineering/...) and it may touch zero repo files
 # in mode:agent, so unlike /ce-work there is no git-observable signal for
 # "a review happened" — this field is the only buildable detection without
-# modifying the external skill. Detection is wb_lifecycle_review_done
-# (wb-lifecycle.sh) — `[ -n "$(wb_get_frontmatter "$taskfile" reviewed)" ]`.
+# modifying the external skill. wb-store's road reads the field.
 # Deliberate limitation, same trade-off wb pause already accepts for
 # `status: paused`: this requires a habit (running `wb reviewed` after a
 # review pass); no staleness invalidation either — a task that receives
-# further commits after being stamped still shows reviewed done. See
-# logs/decisions/2026-07-11-wb-board-lifecycle-detection.md.
+# further commits after being stamped still shows reviewed done.
 cmd_reviewed() {
   local session task_file
   _wb_resolve_session_and_task reviewed session task_file "${1:-}"
@@ -6224,8 +6212,7 @@ cmd_install_hooks() {
 
   # 4. X3 settings verification — read-only against the LIVE file; the
   # reference block lives in the tracked settings.recommended.json,
-  # resolved via wb.sh's own on-disk location (mirrors cmd_board --html's
-  # dotfiles_root resolution) rather than assuming dotfiles is checked out
+  # resolved via wb.sh's own on-disk location rather than assuming dotfiles is checked out
   # literally at $CODE_DIR/dotfiles.
   local dotfiles_root
   dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
@@ -6402,139 +6389,6 @@ wb_pending_counts() {
   fi
 }
 
-
-# wb_shelved_counts <assoc-array-name> — fill <name>[<task-stem>]=<number of shelved
-# decision drafts> from ONE `wb-capture.sh shelved --all` call (the board's DRAFTS column
-# and drafts chip). Stems with no drafts get no key; read with ${arr[$stem]:-0}. The
-# verb prints `<stem>:` then two-space-indented draft paths, so this counts indented lines
-# per stem and never learns where drafts live. Best-effort: a missing or failing
-# wb-capture.sh leaves the array empty and the board renders with 0s.
-wb_shelved_counts() {
-  local -n _wsc_out="$1"
-  local line stem="" listing
-  listing="$(_wb_capture_verb shelved --all 2>/dev/null)" || return 0
-  while IFS= read -r line; do
-    case "$line" in
-      "  "*) [ -n "$stem" ] && _wsc_out["$stem"]=$(( ${_wsc_out["$stem"]:-0} + 1 )) ;;
-      ?*:)   stem="${line%:}" ;;
-    esac
-  done <<<"$listing"
-  return 0
-}
-
-# cmd_board — read-only status table over the whole task store (the interim
-# /board, roadmap 9a / Decision 5A). The picker deliberately shows PRESENCE
-# only, which hides planned/done tasks entirely — this is the one place they
-# stay visible until the full /board feature exists. Reads the same
-# frontmatter wb done writes (one-board principle at the data layer); never
-# touches tmux, so it works from any shell.
-cmd_board() {
-  if [ "${1:-}" = "--html" ]; then
-    # logs/board.html lives in THIS repo (dotfiles), same as logs/decisions/
-    # — derive the root from wb.sh's own location rather than assuming the
-    # repo is literally named "dotfiles" under CODE_DIR.
-    local dotfiles_root
-    dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
-    [ -n "$dotfiles_root" ] || dotfiles_root="$CODE_DIR/dotfiles"
-    local out="$dotfiles_root/logs/board.html"
-    mkdir -p "$(dirname "$out")"
-
-    # U4 cutover: the ratified 3-view renderer (feat-board-build), replacing
-    # the old wb_board_render_html after its parity check (task set,
-    # per-status counts, per-family membership) passed clean against the
-    # real ~301-task store. R16's single collect pass, no tmux/gh/git calls.
-    # shellcheck disable=SC2034  # filled by the callee through the name passed to wb_board_*, never read here directly
-    local -a V2ROWS=()
-    # shellcheck disable=SC2034  # filled by the callee through the name passed to wb_board_*, never read here directly
-    local -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=() \
-      M_DECISIONS_RAW=() M_LINKS_RAW=()
-    wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
-      M_DECISIONS_RAW M_LINKS_RAW
-
-    # shellcheck disable=SC2034  # filled by the callee through the name passed to wb_board_*, never read here directly
-    local -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
-      M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
-      M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
-      M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
-      STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=() \
-      M_SIZE=() M_ACCEPT=() M_DRAFTS=()
-    # U3 (capture-nudge-rework): shelved-draft counts, one verb call for the whole
-    # board, filled BEFORE build_model (which defaults the stems without drafts to 0).
-    wb_shelved_counts M_DRAFTS
-    # fix(review) P2 follow-up: the 22-name model-array sequence was hand-typed
-    # identically at both call sites below (found in PR 1 review) — hoisted to
-    # one constant so U5's 2 new trailing arrays only had to be added once,
-    # and any future model field only ever needs adding here. U2 (KTD8) adds
-    # M_SIZE/M_ACCEPT at the END of this list, after M_PR_URL, for the same
-    # reason — both call sites below pick them up automatically. U3
-    # (capture-nudge-rework) appends M_DRAFTS the same way.
-    local -a WB_BOARD_MODEL_ARGS=(
-      M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
-      M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
-      M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-      FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT M_DRAFTS
-    )
-    wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
-      "${WB_BOARD_MODEL_ARGS[@]}"
-
-    wb_board_render_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
-      "${WB_BOARD_MODEL_ARGS[@]}" M_DECISIONS_RAW M_LINKS_RAW > "$out"
-    echo "wb board: wrote $out"
-    return 0
-  fi
-
-  local f title fu board_rows="" repo status worktree branch activity
-  local -a t
-  # U6/R17: an ACT column, only when the terminal is wide enough to take it
-  # without wrapping the existing four columns — a plain `wb board` run in a
-  # narrow split pane shouldn't have to trade STATUS/REPO/TASK legibility
-  # for it. 100 cols is a rough floor, not a measured one; the HTML board's
-  # data-activity attribute (U6) is the place to look for this
-  # width-independently.
-  local term_width show_act=0
-  term_width="$(tput cols 2>/dev/null || echo 0)"
-  [ "${term_width:-0}" -ge 100 ] && show_act=1
-  # DRAFTS column (capture-nudge-rework R5): shelved decision drafts per task, one verb call.
-  local -A shelved_n=()
-  wb_shelved_counts shelved_n
-  local dr
-  while IFS= read -r f; do
-    [ -f "$f" ] || continue
-    wb_tsv_split "$(wb_read_task "$f")" t
-    status="${t[0]:-?}"; repo="${t[1]:-?}"; worktree="${t[2]:-}"; branch="${t[3]:-}"
-    title="$(wb_task_title "$f")"
-    [ -n "$title" ] || title="$(basename "$f" .md)"
-    fu="$(_wb_open_items "$f" | wc -l)"; fu=$((fu + 0))
-    f="${f##*/}"; dr="${shelved_n["${f%.md}"]:-0}"
-    if [ "$show_act" = 1 ]; then
-      activity="$(wb_task_activity "$repo" "$branch" "$worktree")"
-      board_rows+="$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$dr" "$activity")"$'\n'
-    else
-      board_rows+="$(printf '%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$dr")"$'\n'
-    fi
-  done < <(wb_task_files)
-
-  printf 'live agents: %s (warn >= %s)\n' "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT"
-
-  if [ -z "$board_rows" ]; then
-    echo "wb board: no tasks in $TASKS_DIR"
-    return 0
-  fi
-
-  {
-    if [ "$show_act" = 1 ]; then
-      printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\tDRAFTS\tACT\n'
-    else
-      printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\tDRAFTS\n'
-    fi
-    # doing < review < paused < planned < done < anything-else; rank prefix
-    # keeps the plain-text sort key clean, then drops out before display.
-    printf '%s' "$board_rows" | awk -F'\t' -v OFS='\t' '{
-      r = ($1 == "doing") ? 0 : ($1 == "review") ? 1 : ($1 == "paused") ? 2 : ($1 == "planned") ? 3 : ($1 == "done") ? 4 : 5
-      print r, $0
-    }' | sort -t $'\t' -k1,1n -k3,3 -k4,4 | cut -f2-
-  } | column -t -s $'\t'
-}
 
 # _wb_capture_verb <verb> [args...] — run a wb-capture.sh store verb, best-effort. The
 # script is looked up next to wb.sh (like lib.sh and the other sibling helpers), run in
@@ -7587,8 +7441,7 @@ wb_order_blocks() {
 
 # collect_combined_rows — buffers collect_live_rows' output into an array
 # (two passes, not a stream): deciding a group's anchor needs to see every
-# live family member before emitting any of them, the same reason
-# wb_board_render_html buffers its own ROWS=() rather than streaming.
+# live family member before emitting any of them.
 #
 # Rows are read most recently visited first (field 13), NOT most urgent
 # first: urgency cycles as an agent works, and an order driven by it would
@@ -8838,8 +8691,8 @@ _wb_family_stems() {
 }
 
 # _wb_family_tree <stem> — <stem>, then every descendant depth-first, each
-# once. The parent -> children map is built in ONE pass over wb_task_files
-# (as wb_board_v2_build does), and the seen-set stops a hand-edited cycle.
+# once. The parent -> children map is built in ONE pass over wb_task_files,
+# and the seen-set stops a hand-edited cycle.
 _wb_family_tree() {
   local root="$1"
   local -A kids=() out=()
@@ -9396,7 +9249,6 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     restart)     shift; cmd_restart "$@" ;;
     reconcile)   shift; cmd_reconcile "$@" ;;
     breakdown)   shift; cmd_breakdown "$@" ;;
-    board)       shift; cmd_board "$@" ;;
     done)        shift; cmd_done "$@" ;;
     pause)       shift; cmd_pause "$@" ;;
     down)        shift; cmd_down "$@" ;;

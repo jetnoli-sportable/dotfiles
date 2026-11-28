@@ -257,7 +257,6 @@
       <li><a href="#wb-jira-create--file-a-task-or-family-as-jira-tickets">/wb-jira-create — file a task or family as Jira tickets</a></li>
       <li><a href="#bringing-a-gitignored-file-into-a-new-worktree">Bringing a gitignored file into a new worktree</a></li>
       <li><a href="#the-task-store">The task store</a></li>
-      <li><a href="#wb-board---html--the-full-board-v2">wb board --html — the full board (v2)</a></li>
       <li><a href="#keeping-the-task-store-safe">Keeping the task store safe</a></li>
       <li><a href="#session-memory-isolation">Session memory isolation</a></li>
       <li><a href="#known-rough-edges-not-blocking-worth-knowing">Known rough edges (not blocking, worth knowing)</a></li>
@@ -431,11 +430,10 @@ is never rebased for you. <code>wb new</code> prints <code>branching &lt;slug&gt
 new branch gets no upstream, and an already-existing branch is attached as-is.</p>
 <p><code>--depends-on &lt;stem&gt;</code> (repeatable) names a blocking task by its file stem
 (<code>&lt;repo&gt;--&lt;slug&gt;</code>, no <code>.md</code>), validated against a real task file at
-creation time. Beyond picking the start point, the board renders both
-directions — a ⛔ count on the blocked task, a → count on the blocker —
-once it's declared.</p>
+creation time. <code>wb-store family</code> and the family pages show it once it's
+declared.</p>
 <p><code>path:</code> (which of the five lifecycle stages the task intends to pass
-through) and <code>size:</code> (a rough XS–XL effort bucket) are board-only metadata,
+through) and <code>size:</code> (a rough XS–XL effort bucket) are display metadata,
 set after creation with <code>wb set &lt;task&gt; path &lt;stages&gt;</code> and
 <code>wb set &lt;task&gt; size &lt;bucket&gt;</code>. A blank <code>path:</code> reads as <code>plan,work,review</code>
 and a blank <code>size:</code> as <code>M</code>. <code>/wb-breakdown</code> buffers carry <code>size</code> per child
@@ -496,7 +494,7 @@ and anything at the target path that isn't that branch's worktree.</li>
 <p>What reads <code>worktrees:</code>: the review page (one tab per repo), the turn
 snapshot (Last turn in every tab), <code>wb done</code> (checks and removes every
 worktree), <code>wb review</code> (opens when any worktree is on disk), and
-<code>wb reconcile</code> and the board (a listed worktree is the task's, not an
+<code>wb reconcile</code> (a listed worktree is the task's, not an
 orphan). <code>wb breakdown --apply</code> moves the field to the continuing child.
 The picker, <code>wb continue</code>, the session layout and <code>wb resume</code> stay on the
 primary; recreating extra worktrees on <code>wb resume</code> is a follow-up.</p>
@@ -750,7 +748,7 @@ $ wb pr-open [&lt;session&gt;] # exit 0 if the branch has an open PR, 1 otherwis
 one to reach for when a PR just went up and there's nothing left to do
 until someone reviews it. It snapshots every Claude conversation currently
 on disk for the worktree into the task's <code>claude_sessions:</code> field (a record
-for the board and for humans — never the source of truth for resuming),
+for humans — never the source of truth for resuming),
 marks the pane in the <code>agent</code> window as the primary one, sets <code>status: review</code> only if <code>wb pr-open</code> finds an open PR on the branch, then kills the
 session. The worktree is never touched.</p>
 <p><code>wb pause</code> is the same close, plus a deliberate <code>status: paused</code> — for a
@@ -987,7 +985,7 @@ seeded from <code>TEMPLATE.md</code>:</p>
 <pre><code>---
 status: planned      # planned | doing | paused | review | done (anything
                       # else — e.g. a stale `open` — falls into an
-                      # unclassified catch-all on the board, not a crash)
+                      # unclassified catch-all in displays, not a crash)
 path:                 # optional: ideate,brainstorm,plan,work,review subset;
                       # blank -&gt; defaults to plan,work,review
 repo: dotfiles
@@ -1039,12 +1037,11 @@ wb set &lt;task&gt; tags &quot;[coding-ui, contract-test, tests]&quot;
 </code></pre>
 <p>The planned/backlog tasks the presence-only picker hides are one command
 away:</p>
-<pre><code>wb board    # read-only status table over the whole store (the interim /board)
+<pre><code>wb-store list    # every task in the store, one per line, with its status
+wb-store serve   # the read-only page server: families index, family and task pages
 </code></pre>
-<p>On a wide-enough terminal (roughly 100+ columns) this also gains an <strong>ACT</strong>
-column — <code>active</code>/<code>dormant</code>/<code>cold</code>, the same derived value the picker's
-dormant rows and the HTML board's toggle use — dropped entirely on a
-narrow split pane rather than squeezing STATUS/REPO/TASK to make room.</p>
+<p>(<code>wb board</code>, the bash status table and HTML board, was removed on
+2026-11-28; wb-store's list and pages replace it.)</p>
 <h3 id="dossier-layout">Dossier layout</h3>
 <p>The task file above grows without limit: every save, decision and follow-up
 lands in it, so it gets slow to read and its sections get quoted by half the
@@ -1092,7 +1089,7 @@ that matches exactly one open item (several matches, no match, or an item
 already closed exits 1). It sets
 <code>status: closed</code>, adds <code>closed: &lt;date&gt;</code> and, with a note, a
 <code>Closed &lt;date&gt;: &lt;note&gt;</code> line, then rebuilds the views; closed items drop out
-of the counts and of the board's lists.</li>
+of the counts.</li>
 <li><strong>Generated views</strong>, read-only and rebuilt after every write: <code>decisions.md</code>
 (proposed decisions under their own &quot;Proposed&quot; heading, then in force, then
 superseded collapsed), <code>handoffs.md</code> (newest first) and <code>index.md</code>. Read these
@@ -1353,159 +1350,6 @@ primary is gone, the page opens on the first repo that's still there.</li>
 </ul>
 <p>Vimium users: add the exclusion rule <code>http://127.0.0.1:*/t/*</code>, with no pass
 keys, so the page's own keys reach it.</p>
-<h2 id="wb-board---html--the-full-board-v2"><code>wb board --html</code> — the full board (v2)</h2>
-<p><code>wb board --html</code> writes <code>logs/board.html</code> (gitignored, overwritten on every
-call) — a richer, filterable view over the whole store that goes well beyond
-the plain-text table above. Open it with <code>xdg-open logs/board.html</code>, or ask
-an agent to run <code>wb board --html</code> and relay the path (the <code>/wb-board</code> skill
-was removed 2026-09-14 — zero measured usage, agents were already just
-shelling out to <code>wb board</code> manually and relaying the result).</p>
-<p>The page is one static file with a small inline script — everything it
-shows is computed from the task files at render time, with no git/gh/tmux
-calls of its own, so a render is quick even on a few hundred tasks. It has
-two parts: a <strong>left rail</strong> that scopes everything, and four <strong>views</strong> in the
-main pane.</p>
-<p><strong>The rail.</strong> A text box (<code>/</code> focuses it) sits at the top and narrows the
-rail <em>and</em> the main pane of every view by title as you type. Under it is a
-row of <strong>repo chips</strong>: <code>All</code>, then the five repos with the most tasks
-(<code>dotfiles</code> pinned first when present), then <code>other</code> — a real set of the
-remaining repos, plus tasks with no <code>repo:</code> at all. Below that, the rail
-shows a <strong>Doing</strong> tree — &quot;All doing&quot; first, then each family with active
-work as a collapsible node, its children nested — and two groups,
-<strong>Next</strong> (planned tasks, collapsed by default) and <strong>Shelf</strong> (paused and
-prospective ones, expanded by default), with counts. Picking a row <em>scopes</em> the board: Active narrows to that task or
-family, Roadmap outlines the lane and dims the rest (never hides it — a
-roadmap of one lane is useless), Week auto-expands the picked task. &quot;All
-doing&quot; (or <code>a</code>) clears the scope. On the <strong>Family</strong> view the rail swaps to
-a flat list of families instead, and picking one shows just that family.
-The selected view, scope and repo chip are remembered in <code>localStorage</code>,
-so a re-render lands where you left it.</p>
-<p><strong>Keys.</strong> <code>1</code>–<code>4</code> switch views, <code>j</code>/<code>k</code> move a cursor down/up the rail,
-<code>Enter</code> picks the cursor row, <code>a</code> clears the scope, <code>/</code> focuses the filter
-(<code>Esc</code> clears it and blurs; <code>Esc</code> elsewhere drops the cursor). A legend in
-the page caption lists them. Each view tab carries a count badge.</p>
-<p><strong>Active (<code>1</code>, default).</strong> One card per task whose status is <code>doing</code> or
-<code>review</code>, ordered freshest first. A task untouched for <strong>14+ days</strong> is
-<em>stale</em>: it still gets a card, in full contrast with a red dot and age
-(never desaturated), but sorts after the fresh ones. Each card shows the
-title, status, repo, age, and the <strong>lifecycle strip</strong> — <strong>ideate ·
-brainstorm · plan · work · review</strong>, each rendered ✓ done, ● in progress
-(work only) or ○ pending, with n/a stages omitted entirely — plus a PR chip
-when one exists. Click a card to expand a drilldown in place beneath it:
-a &quot;Now&quot; line, the latest handoff, and collapsed Plan (checked/total), Done,
-Follow-ups, Decisions and Artifacts sections with counts. Task ids are
-click-to-copy (<code>wb resume &lt;stem&gt;</code>) and link to the task file.</p>
-<p>The strip's state is <strong>computed live</strong> every render, never stored — a
-task's <code>path:</code> frontmatter declares which stages it intends to go through
-(defaults to <code>plan,work,review</code>), but a real signal always wins even for an
-undeclared stage: a plan doc that shows up for a task that never declared
-<code>plan</code> still renders that stage done.</p>
-<p><strong>Roadmap (<code>2</code>).</strong> A grid of lanes against five columns — <em>2 wks ago ·
-last wk · THIS WEEK · next · later</em> — with a &quot;Today&quot; line. One lane per
-family with active work (a milestone lane showing <code>done / total</code> with a
-bar per member) or per standalone active task. Above the lanes a
-collapsible readiness strip reads <strong>Ready now · N · Blocked · N</strong>: every
-planned task store-wide, split by whether its <code>depends_on:</code> blockers are
-all <code>done</code>. Open it for the pills (each capped at 8 with a &quot;+N more&quot;
-tail); a blocked pill names what it is waiting on. Stale tasks collapse
-into a <strong>Stale · N doing, needs review</strong> toggle below the grid.</p>
-<p><strong>Week (<code>3</code>).</strong> Headed by the ISO week and its date range with
-active/stale counts. <strong>This week</strong> lists active tasks updated since
-Monday as collapsed cards (click to expand the same drilldown);
-<strong>Carried over</strong> groups older active work by family, with stale tasks
-behind a toggle; <strong>Queue &amp; shelf</strong> closes it with &quot;Unblocked next&quot; and
-&quot;Shelf&quot; chips (the shelf count excludes done).</p>
-<p><strong>Family (<code>4</code>).</strong> One block per family — a parent and its children. Each
-opens with the same summary header as an expanded Active card, then the
-Dependencies graph (below), then either a <strong>version ladder</strong> (when the
-parent's Plan carries a <code>### Version ladder status</code> table: one rung per
-version, with its tickets and wb tasks) or a plain <strong>family tree</strong> of the
-parent and its children, each child expandable in place.</p>
-<p><strong>Relationships.</strong> A task can declare <code>depends_on: &lt;repo&gt;--&lt;slug&gt;[,...]</code> —
-comma-separated blocker stems, met once the blocker's <code>status:</code> is <code>done</code>.
-A dangling stem or a dependency cycle fails open (the task renders
-unblocked, with a warning naming the problem) rather than breaking the
-render. The effects show up in the Roadmap's Ready/Blocked strip, the Week
-view's &quot;Unblocked next&quot; chips, and the Family graph below.</p>
-<p><strong>Creating a task with intent:</strong> <code>wb new</code> accepts repeatable
-<code>--depends-on &lt;stem&gt;</code> (each validated against a real task file). Declare
-the stages afterwards with <code>wb set &lt;task&gt; path &lt;stages&gt;</code>; a task with no
-<code>path:</code> gets the <code>plan,work,review</code> default.</p>
-<p><strong>Placing a child on its parent's ladder:</strong> <code>wb set &lt;child&gt; rung &lt;heading&gt;</code>
-names the rung of the parent's dossier <code>ladder.md</code> the child works on, by
-the rung's <code>### </code> heading (e.g. <code>wb set dotfiles--wb-done-rework rung &quot;wb done rework&quot;</code>). <code>wb-store</code> matches it ignoring case and punctuation, and the
-page server's Plan view (<code>wb-store serve</code>) draws each child under its rung.
-The value is free text and isn't checked against the ladder. Unlike the
-other <code>wb set</code> fields, <code>rung</code> may be set while the child has a live session:
-the child's own session never writes that line, and the write is locked.</p>
-<p><strong>Family tab — the Dependencies graph.</strong> Each family block (a parent and
-its direct children) opens with a <strong>Dependencies</strong> region whenever at least
-one child has a <code>depends_on:</code> pointing at a sibling. It's a static
-node-link graph, with no scripting, laid out left to right by dependency
-depth: a task sits one column right of the deepest sibling it waits on.
-The parent itself isn't a node, and edges to tasks outside the family
-aren't drawn. A header line above it reads, for example, <code>Critical path: a → b → c · 7.5 pts remaining · 2 startable now</code>.</p>
-<table>
-<thead>
-<tr>
-<th>Encoding</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Outline and dot colour</td>
-<td>Status — green done (muted), mauve doing/review, blue planned, grey anything else</td>
-</tr>
-<tr>
-<td>Card size</td>
-<td><code>size:</code> — XS, S, M, L, XL (blank draws as M)</td>
-</tr>
-<tr>
-<td>Dashed grey outline</td>
-<td>Under-defined: fewer than 3 of the 4 signals (a non-empty Plan, acceptance criteria or a definition of done anywhere in the file, <code>size:</code> set, status past <code>planned</code>). Done tasks are always solid</td>
-</tr>
-<tr>
-<td>Peach spine</td>
-<td>The critical path — the longest chain of remaining work, weighting XS 0.5, S 1, M 2, L 3, XL 5, done 0</td>
-</tr>
-<tr>
-<td>Yellow outline</td>
-<td>Startable now — <code>planned</code>, and every blocker (in or out of the family) is done</td>
-</tr>
-<tr>
-<td>Pulsing ring</td>
-<td>In progress (<code>doing</code> or <code>review</code>); the ring stays still if your system asks for reduced motion</td>
-</tr>
-<tr>
-<td>🔒</td>
-<td>Blocked by a task outside the family — hover for which</td>
-</tr>
-<tr>
-<td>START / END</td>
-<td>No in-family predecessor / nothing in the family depends on it</td>
-</tr>
-<tr>
-<td>&quot;You are here&quot; line</td>
-<td>Sits before the first column that still has unfinished work, once there are finished columns to its left</td>
-</tr>
-<tr>
-<td>Red dashed edge</td>
-<td>A dependency cycle — the loop still renders, members in the last column</td>
-</tr>
-</tbody>
-</table>
-<p>Every card links to its task file and has a hover tooltip (stem, status,
-size). A flat family with no in-family edges shows a &quot;no dependency data
-yet — add <code>depends_on:</code>&quot; note instead; a version-ladder family with none
-shows nothing extra. The same per-child <code>size</code>, <code>layer</code>, <code>critical</code> and
-<code>startable</code> fields, plus each family's <code>critical_path</code> and <code>remaining</code>,
-land in <code>~/code/tasks/.board-cache/family-rollup.json</code>.</p>
-<p><strong>Review-stamp convention.</strong> After any <code>/ce-code-review</code> pass completes
-inside a <code>wb</code> session, run <code>wb reviewed</code> — it stamps the task's <code>reviewed:</code>
-field, which is what makes the Review stage (and the unreviewed-count
-insight) tell the truth. This is a convention, not automation — nothing
-enforces it, it only works if it's actually run.</p>
 <h2 id="keeping-the-task-store-safe">Keeping the task store safe</h2>
 <p><code>~/code/tasks</code> is a single git checkout that every <code>wb</code>-driven session on
 this machine shares — 8-10+ concurrent agents on a normal day. A follow-up
@@ -1568,7 +1412,7 @@ inert passthrough.</p>
 agents are already live across every session and prints a non-blocking
 warning to stderr past a threshold — it never refuses to start one, since
 the cgroup isolation above is the actual containment. The count is also
-surfaced ambiently in the picker header and in <code>wb board</code> / <code>wb board --html</code>, so it's a glance rather than something you have to go looking for.</p>
+surfaced ambiently in the picker header, so it's a glance rather than something you have to go looking for.</p>
 <p>Three env vars control it, each with a default and a <code>~/.zshrc.local</code>
 override seam (that file is sourced after these defaults, so a plain
 <code>export WB_AGENT_MEM_MAX=4G</code> there is all a tuning change needs — no code
@@ -1659,10 +1503,9 @@ these exist, not a drill-down. (The picker's header showed them too until
 2026-10-25.)</p>
 <blockquote>
 <p><strong>Update:</strong> the &quot;no single full picture view&quot; gap this note originally
-flagged is closed — that's exactly what <code>wb board --html</code> (above) is now
-for. Follow-ups and parked items still live in their own places (they're
-not board-tracked), but live/planned/paused/done tasks across every repo
-are one command away.</p>
+flagged is closed — <code>wb-store serve</code>'s families index is now for that.
+Follow-ups and parked items still live in their own places, but
+live/planned/paused/done tasks across every repo are one command away.</p>
 </blockquote>
 <h3 id="merging-this-pr">Merging this PR</h3>
 <p>Everything in this guide is ready to merge as-is. What's deliberately <em>not</em>

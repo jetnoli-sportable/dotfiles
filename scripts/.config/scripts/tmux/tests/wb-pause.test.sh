@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for `wb pause` (U3 rework) — plain-bash assertions against a fixture
-# store and a real (but throwaway) tmux session, same convention as
-# wb-board.test.sh. Sources wb.sh (safe: see the BASH_SOURCE guard at the
+# store and a real (but throwaway) tmux session.
+# Sources wb.sh (safe: see the BASH_SOURCE guard at the
 # bottom of wb.sh) to call cmd_pause directly against fixture tmux state.
 # `wb pause` now shelves a task ON PURPOSE (the progress axis) and composes
 # `wb down` (the activity axis) so a paused task never keeps a live session
