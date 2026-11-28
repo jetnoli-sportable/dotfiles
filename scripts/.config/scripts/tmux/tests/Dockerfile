@@ -20,7 +20,7 @@ RUN apt-get update \
        bash zsh git tmux gawk mawk coreutils grep sed ca-certificates bsdextrautils jq locales \
     && rm -rf /var/lib/apt/lists/*
 
-# en_US.UTF-8, for tests that run under a non-C locale.
+# en_US.UTF-8 for wb-frontmatter.test.sh's wb_tsv_split locale loop.
 RUN locale-gen en_US.UTF-8
 
 # HOME has no code/ dir at all in the image — even a fresh CODE_DIR-shaped

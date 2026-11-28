@@ -283,8 +283,10 @@ _wb_awk_inplace() {
 # <after_key>'s line when given and present, else just before the closing
 # `---`, in argument order. A key written as `?key` is fill-only: it is
 # written when the key is missing or its value is blank, and left alone
-# otherwise. Values go through ENVIRON, never `awk -v`, which would decode
-# a literal `\n` into a real newline and inject a second frontmatter line.
+# otherwise (a later non-blank duplicate counts). An opening `---` with no
+# closing one fails (exit 2) and leaves the file as it was. Values go
+# through ENVIRON, never `awk -v`, which would decode a literal `\n` into a
+# real newline and inject a second frontmatter line.
 wb_fm_write() {
   local file="$1"; shift
   local after=""
@@ -317,18 +319,17 @@ wb_fm_write() {
       for (j = 1; j <= n; j++) if (!first[j] && !done[j]) { print K[j] ": " V[j]; done[j] = 1 }
     }
     END {
-      for (i = fs + 1; i < fe; i++) { j = keyof(lines[i]); if (j && !first[j]) first[j] = i }
-      for (j = 1; j <= n; j++) {
-        keep[j] = 0
-        if (fill[j] && first[j]) {
-          v = substr(lines[first[j]], length(K[j]) + 2); sub(/^[ \t]*/, "", v)
-          keep[j] = (v != "")
-        }
+      if (fs && !fe) exit 2
+      for (i = fs + 1; i < fe; i++) {
+        j = keyof(lines[i]); if (!j) continue
+        if (!first[j]) first[j] = i
+        v = substr(lines[i], length(K[j]) + 2); sub(/^[ \t]*/, "", v)
+        if (fill[j] && v != "" && !keep[j]) keep[j] = i
       }
       for (i = 1; i <= nl; i++) {
         line = lines[i]
         if (i > fs && i < fe && (j = keyof(line))) {
-          if (keep[j]) { print line; continue }
+          if (keep[j]) { if (i == keep[j]) print line; continue }
           if (i == first[j]) {
             c = ""; if (match(line, /[ \t]+#.*$/)) c = substr(line, RSTART)
             print K[j] ": " V[j] c
@@ -553,7 +554,7 @@ wb_task_files() {
 # transcript the dying process touched (the live one and the pre-/clear
 # ones), so after a mass kill they share one mtime second (wb_resume_id
 # ranks by in-file timestamp instead). The
-# claude_sessions: frontmatter field is a snapshot for the board/record
+# claude_sessions: frontmatter field is a snapshot for the record
 # only (wb_sessions_snapshot, near cmd_down) — it is never consulted here.
 # ---------------------------------------------------------------------------
 
@@ -681,7 +682,7 @@ wb_sessions_snapshot() {
 # in new-session -s, so an unsanitized name diverges from what tmux actually
 # created — and a stale ":"-bearing name later fed to kill-session parses as
 # session:window and can kill an UNRELATED session.
-wb_sanitize() { local s="${1//\//-}"; s="${s//./-}"; echo "${s//:/-}"; }
+wb_sanitize() { local s="${1//\//-}"; s="${s//./-}"; s="${s//|/-}"; echo "${s//:/-}"; }
 
 # WB_SIZE_VALUES / _wb_valid_size <value> — the `size:` frontmatter enum,
 # defined ONCE as the `|`-joined literal (it doubles as the text of every
@@ -713,8 +714,8 @@ wb_resolve_parent_ref() {
 # wb_task_own_parent <candidate_parent_stem> <own_stem> — exit 0 (safe) when
 # candidate is NOT own_stem's own file; exit 1 (self-reference) when it is.
 # Single shared check for the write path (wb new --parent, wb reconcile
-# --apply's create-task action) and both read paths (picker grouping,
-# /board's rollup) so the rule can't drift between call sites.
+# --apply's create-task action) and the picker's grouping read path so the
+# rule can't drift between call sites.
 wb_task_own_parent() {
   [ "$1" != "$2" ] || return 1
   return 0
@@ -2101,7 +2102,7 @@ cmd_new() {
 
   # Validate before anything is touched — same fail-loud-on-no-match
   # convention as `wb resume`. Also reject a self-referential --parent, the
-  # same guard the picker/board read paths use (wb_task_own_parent).
+  # same guard the picker's read path uses (wb_task_own_parent).
   if [ -n "$parent_ref" ]; then
     wb_resolve_parent_ref "$parent_ref" >/dev/null || exit 1
     wb_task_own_parent "$parent_ref" "$own_stem" \
@@ -3204,7 +3205,7 @@ _wb_bd_bullet() {
 # or cross-repo dep) kept verbatim; a bare token is a sibling's RAW slug and
 # becomes <repo>--<wb_sanitize(token)> — the same raw-slug-resolved-at-apply
 # convention migrate/move targets use. NO existence check (D2/R4): a
-# same-apply sibling needn't be seeded yet, and the board already fails open
+# same-apply sibling needn't be seeded yet, and readers already fail open
 # on a dangling depends_on: (README "Dependencies").
 #
 # Shape checks live here too, so the validator (which calls this once,
@@ -3835,7 +3836,7 @@ _wb_breakdown_execute() {
     for dep in "${_dep_arr[@]}"; do
       case "$all_create_stems" in *" $dep "*) continue ;; esac
       [ -f "$TASKS_DIR/$dep.md" ] \
-        || echo "wb breakdown --apply: warning: child n=$n ($raw) depends_on '$dep' matches neither a checked child in this buffer nor an existing task file (kept as-is; the board fails open on dangling deps)" >&2
+        || echo "wb breakdown --apply: warning: child n=$n ($raw) depends_on '$dep' matches neither a checked child in this buffer nor an existing task file (kept as-is; readers fail open on dangling deps)" >&2
     done
     local body; body="$(_wb_breakdown_child_plan_body "$path" "$n")"
     local child_file
@@ -5781,7 +5782,7 @@ cmd_set() {
 WB_WEEK_SECTIONS=("What's working" "What's not working" "New ideas" "Notes")
 
 # _wb_week_dir / _wb_week_capture_path — $TASKS_DIR/weeks/ is invisible to
-# the board/picker by construction (KTD2: the row source globs
+# the picker by construction (KTD2: the row source globs
 # "$TASKS_DIR"/*.md, non-recursive). The capture doc is standing, not
 # per-week (D5) — one file, never cleared.
 _wb_week_dir() { printf '%s/weeks\n' "$TASKS_DIR"; }
@@ -6260,7 +6261,7 @@ wb_week_days_since_last_record() {
 # entries (Nd since last review)", read by wb done's post-close-out nudge.
 # KTD2a: repointed from the retired /park ledger's open count at the
 # standing capture doc instead — the ledger's invisibility to the
-# board/picker was only safe because this ambient nudge existed; losing the
+# picker was only safe because this ambient nudge existed; losing the
 # signal here would reproduce the exact structural rot this plan exists to
 # end. The picker's header carried it too until 2026-10-25, when it was
 # dropped: it scans the whole store, and the header refreshes every 3 s.
@@ -6696,10 +6697,6 @@ cmd_done() {
   local task_stem; task_stem="$(basename "$task_file" .md)"
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
 
-  # Read unconditionally (not just inside the store_only==0 branch below):
-  # U10's roadmap-currency nudge near the end needs repo: on a store-only
-  # close too, and a conditionally-scoped local would be unbound there
-  # under set -u.
   local repo; repo="$(wb_get_frontmatter "$task_file" repo)"
 
   # Draft guard: the background sweep shelves unreviewed decision drafts under
@@ -6984,16 +6981,6 @@ cmd_done() {
   if [ -n "$close_target" ]; then
     echo "wb done: all children of $close_target are done — close it with: wb done $close_target"
   fi
-
-  # KTD5's roadmap-currency nudge: pure read + print, never gates or writes.
-  # Matched against a small fixed list of roadmap-tracked repos — never a
-  # raw substring match against the bracketed tags: text, which could
-  # false-positive on an unrelated tag.
-  case "$repo" in
-    dotfiles|docgen)
-      echo "wb done: $repo is roadmap-tracked — worth a check of docs/roadmap.md"
-      ;;
-  esac
 
   # --close is opt-in, not a revert of the wb-pause-era decision above: the
   # session survives by default, and only this explicit flag reaches for

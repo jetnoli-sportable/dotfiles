@@ -79,15 +79,14 @@ echo scratch > "$FIXTURE_CODE/proj/.worktrees/dirty/scratch.txt"
 printf -- '---\nstatus: doing\nrepo: proj\nbranch: delta\nworktree: .worktrees/delta\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n\n## Handoffs\n\n### 2026-07-01 09:00 — wb pause (auto)\n\nSession paused via `wb pause`.\n\n## Decisions\n' \
   > "$FIXTURE_TASKS/proj--delta.md"
 
-# "epsilon" needs its OWN fixture repo named "dotfiles" (a roadmap-tracked
-# repo, per KTD5) — cmd_done resolves repo_dir from the task file's repo:
+# "epsilon" needs its OWN fixture repo named "dotfiles" — cmd_done resolves repo_dir from the task file's repo:
 # frontmatter (wb.sh's hoisted `repo` read), never from the @wb_repo tmux
 # option, so a task file merely claiming repo: dotfiles while its real
 # worktree sits under the generic "proj" fixture would make cmd_done's own
 # repo_dir="$CODE_DIR/$repo" point at a directory that doesn't exist —
-# every teardown step would then silently no-op via its own existence guard,
-# and this fixture would only ever prove the nudge prints, never that it
-# coexists correctly with a real worktree removal.
+# every teardown step would then silently no-op via its own existence guard.
+# It also pins that the retired roadmap nudge (docs/roadmap.md, retired
+# 2026-11-28) no longer prints for dotfiles/docgen.
 git init -q "$FIXTURE_CODE/dotfiles"
 git -C "$FIXTURE_CODE/dotfiles" -c user.email=test@test -c user.name=test commit -q --allow-empty -m init
 git -C "$FIXTURE_CODE/dotfiles" worktree add -q -b epsilon ".worktrees/epsilon" >/dev/null 2>&1
@@ -95,10 +94,7 @@ rm -f "$FIXTURE_TASKS/proj--epsilon.md"   # unused: mk_task's generic proj-roote
 printf -- '---\nstatus: doing\nrepo: dotfiles\nbranch: epsilon\nworktree: .worktrees/epsilon\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' \
   > "$FIXTURE_TASKS/dotfiles--epsilon.md"
 
-# "zeta" mirrors epsilon for the OTHER roadmap-tracked repo value — the
-# `dotfiles|docgen)` case pattern in wb.sh's nudge has two branches, and a
-# fixture only exercising the first would let a typo/drop of the second
-# alternative pass the whole suite unnoticed.
+# "zeta" mirrors epsilon for the other repo the retired nudge named (docgen).
 git init -q "$FIXTURE_CODE/docgen"
 git -C "$FIXTURE_CODE/docgen" -c user.email=test@test -c user.name=test commit -q --allow-empty -m init
 git -C "$FIXTURE_CODE/docgen" worktree add -q -b zeta ".worktrees/zeta" >/dev/null 2>&1
@@ -148,11 +144,6 @@ out="$(cmd_done "$alpha_session" 2>&1)"; rc=$?
 assert "plain done: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
 assert "plain done: confirmation says the session stays open" 'worktree removed, session left open \(pass --close to end it\), task -> done' "$out"
 assert "plain done: handoff line says the session stays open" 'Worktree removed, session left open \(`wb done` without `--close`\)\.$' "$(cat "$FIXTURE_TASKS/proj--alpha.md")"
-if printf '%s' "$out" | grep -q 'roadmap-tracked'; then
-  echo "FAIL - U10 nudge: fired for repo: proj, which isn't roadmap-tracked"; fail=1
-else
-  echo "ok   - U10 nudge: silent for an unrelated repo"
-fi
 [ -d "$FIXTURE_CODE/proj/.worktrees/alpha" ] \
   && { echo "FAIL - plain done: worktree not removed"; fail=1; } \
   || echo "ok   - plain done: worktree removed"
@@ -269,23 +260,31 @@ else
 fi
 
 
-# --- U10: roadmap-currency nudge fires only for a roadmap-tracked repo, ----
-# --- alongside a REAL worktree teardown against its own "dotfiles" fixture --
+# --- repo: dotfiles closes against its own fixture repo, with no roadmap ---
+# --- nudge (the roadmap was retired 2026-11-28) -----------------------------
 epsilon_session="$(session_for epsilon)"
 out="$(cmd_done "$epsilon_session" 2>&1)"; rc=$?
 assert "U10 nudge: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
-assert "U10 nudge: fires for repo: dotfiles" 'dotfiles is roadmap-tracked.*docs/roadmap\.md' "$out"
+if printf '%s' "$out" | grep -q 'roadmap'; then
+  echo "FAIL - U10 nudge: still printed for repo: dotfiles"; fail=1
+else
+  echo "ok   - U10 nudge: gone for repo: dotfiles"
+fi
 [ -d "$FIXTURE_CODE/dotfiles/.worktrees/epsilon" ] \
   && { echo "FAIL - U10 nudge: epsilon's real worktree not removed"; fail=1; } \
   || echo "ok   - U10 nudge: epsilon's real worktree removed (repo_dir resolved correctly)"
 status_of_dotfiles_epsilon() { wb_get_frontmatter "$FIXTURE_TASKS/dotfiles--epsilon.md" status; }
 assert "U10 nudge: epsilon task flipped to done" '^done$' "$(status_of_dotfiles_epsilon)"
 
-# --- U10: the OTHER roadmap-tracked repo value (docgen) fires too ----------
+# --- repo: docgen, the other repo the retired nudge named ------------------
 zeta_session="$(session_for zeta)"
 out="$(cmd_done "$zeta_session" 2>&1)"; rc=$?
 assert "U10 nudge: exits 0 (docgen)" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
-assert "U10 nudge: fires for repo: docgen" 'docgen is roadmap-tracked.*docs/roadmap\.md' "$out"
+if printf '%s' "$out" | grep -q 'roadmap'; then
+  echo "FAIL - U10 nudge: still printed for repo: docgen"; fail=1
+else
+  echo "ok   - U10 nudge: gone for repo: docgen"
+fi
 [ -d "$FIXTURE_CODE/docgen/.worktrees/zeta" ] \
   && { echo "FAIL - U10 nudge: zeta's real worktree not removed"; fail=1; } \
   || echo "ok   - U10 nudge: zeta's real worktree removed (repo_dir resolved correctly)"
