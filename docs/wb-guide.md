@@ -181,12 +181,11 @@ new branch gets no upstream, and an already-existing branch is attached as-is.
 
 `--depends-on <stem>` (repeatable) names a blocking task by its file stem
 (`<repo>--<slug>`, no `.md`), validated against a real task file at
-creation time. Beyond picking the start point, the board renders both
-directions — a ⛔ count on the blocked task, a → count on the blocker —
-once it's declared.
+creation time. `wb-store family` and the family pages show it once it's
+declared.
 
 `path:` (which of the five lifecycle stages the task intends to pass
-through) and `size:` (a rough XS–XL effort bucket) are board-only metadata,
+through) and `size:` (a rough XS–XL effort bucket) are display metadata,
 set after creation with `wb set <task> path <stages>` and
 `wb set <task> size <bucket>`. A blank `path:` reads as `plan,work,review`
 and a blank `size:` as `M`. `/wb-breakdown` buffers carry `size` per child
@@ -232,7 +231,7 @@ the task a second worktree in `<repo>`:
 What reads `worktrees:`: the review page (one tab per repo), the turn
 snapshot (Last turn in every tab), `wb done` (checks and removes every
 worktree), `wb review` (opens when any worktree is on disk), and
-`wb reconcile` and the board (a listed worktree is the task's, not an
+`wb reconcile` (a listed worktree is the task's, not an
 orphan). `wb breakdown --apply` moves the field to the continuing child.
 The picker, `wb continue`, the session layout and `wb resume` stay on the
 primary; recreating extra worktrees on `wb resume` is a follow-up.
@@ -465,7 +464,7 @@ $ wb pr-open [<session>] # exit 0 if the branch has an open PR, 1 otherwise
 one to reach for when a PR just went up and there's nothing left to do
 until someone reviews it. It snapshots every Claude conversation currently
 on disk for the worktree into the task's `claude_sessions:` field (a record
-for the board and for humans — never the source of truth for resuming),
+for humans — never the source of truth for resuming),
 marks the pane in the `agent` window as the primary one, sets `status:
 review` only if `wb pr-open` finds an open PR on the branch, then kills the
 session. The worktree is never touched.
@@ -741,7 +740,7 @@ seeded from `TEMPLATE.md`:
 ---
 status: planned      # planned | doing | paused | review | done (anything
                       # else — e.g. a stale `open` — falls into an
-                      # unclassified catch-all on the board, not a crash)
+                      # unclassified catch-all in displays, not a crash)
 path:                 # optional: ideate,brainstorm,plan,work,review subset;
                       # blank -> defaults to plan,work,review
 repo: dotfiles
@@ -761,7 +760,7 @@ claude_sessions:      # optional: id@iso-ts[@primary],... — a record of
                       # `wb down`/`wb pause`, blanked by `wb done`. Never
                       # consulted for resume — Claude's own transcript
                       # store on disk is the source of truth for that.
-layout: dossier       # marker that `wb migrate` and wb-store read
+layout: dossier       # marker that wb-store reads
 ---
 # Title
 
@@ -801,13 +800,12 @@ The planned/backlog tasks the presence-only picker hides are one command
 away:
 
 ```
-wb board    # read-only status table over the whole store (the interim /board)
+wb-store list    # every task in the store, one per line, with its status
+wb-store serve   # the read-only page server: families index, family and task pages
 ```
 
-On a wide-enough terminal (roughly 100+ columns) this also gains an **ACT**
-column — `active`/`dormant`/`cold`, the same derived value the picker's
-dormant rows and the HTML board's toggle use — dropped entirely on a
-narrow split pane rather than squeezing STATUS/REPO/TASK to make room.
+(`wb board`, the bash status table and HTML board, was removed on
+2026-11-28; wb-store's list and pages replace it.)
 
 ### Dossier layout
 
@@ -820,12 +818,8 @@ into its own file in the task's dossier. Every task uses it: `wb new`,
 task" all get `layout: dossier`, a `## Now` placeholder that points at the
 dossier's `brief.md` (where `/handoff` writes the opening ask), and a drafted
 `brief.md`. Nothing in `wb` branches on the marker; it is there for
-`wb migrate` and wb-store. `wb migrate <task>|--all` converts an old-shape task
-file (one written by hand or brought from elsewhere) into this layout. Records
-written to such a file before it is migrated (a `wb append`, a handoff note)
-already sit in its dossier; migrate adds the converted records beside them,
-and stops with nothing written only when a converted record's file name is
-already taken.
+wb-store. (`wb migrate`, the one-off converter from the old section-based
+shape, was removed on 2026-11-28 once every task had been converted.)
 
 For every task:
 
@@ -858,12 +852,12 @@ For every task:
   already closed exits 1). It sets
   `status: closed`, adds `closed: <date>` and, with a note, a
   `Closed <date>: <note>` line, then rebuilds the views; closed items drop out
-  of the counts and of the board's lists.
+  of the counts.
 - **Generated views**, read-only and rebuilt after every write: `decisions.md`
   (proposed decisions under their own "Proposed" heading, then in force, then
   superseded collapsed), `handoffs.md` (newest first) and `index.md`. Read these
   for an overview; read the record files when you need the exact entry. Never edit
-  a view. A record whose source had no time (see "One record shape" below) is
+  a view. A record with `time: none` (see "Records without a time" below) is
   headed with its date alone in `handoffs.md`.
 - **The views are not in git.** From the switch the store's `.gitignore` lists
   them, so a commit names record files and never a view: `git add
@@ -897,33 +891,14 @@ For every task:
   replaces the per-PR test guide) uses `task:<its task> done`, so it retires
   when `wb done` closes the task.
 
-**One record shape.** `wb migrate` writes each decision the way `wb append`
-does: the `# ` line carries the full title (the file name's slug still comes from
-a title cut at 100 characters) and the source's `### <date> <HH:MM> — <title>`
-heading is not repeated in the body, because its date and time are in the file
-name and its title is on the `# ` line. Handoff records keep their heading line,
-as the live writer does. When a source entry had no HH:MM, `wb migrate` still
-names the file `<date>-0000-…`, `-0001-…` (a sequence number that keeps file
-order, which readers parse) but adds `time: none` to the record's frontmatter,
-and the readers print such a record with its date alone. A record without
-the field behaves as before. Records without a time are decisions and handoffs;
-open items never carried one.
-
-**`wb migrate --tidy <task>|--all [--dry-run]`** repairs tasks migrated before
-that fix. It runs once, at the switch. For each decision record whose first body
-line is a dated `###` heading that duplicates the record (same date, same time if
-the heading has one, and a title the `# ` line equals or is the clipped form of),
-it moves the full title to the `# ` line, drops the heading, and adds
-`time: none` when the heading had no HH:MM and the name's HHMM is a 00NN sequence
-number. A date-only entry (first line `DATE — …`, `- DATE …` or `**DATE …`, the same
-date as its name, no HH:MM after it, a 00NN name) just gains `time: none`. Handoff
-records stamped the same way, and the migrate history handoff, get `time: none`. A
-record whose first body line is neither is never touched. It takes each task's lock, rebuilds the views, changes nothing on a second
-run, and with `--dry-run` prints what would change per record and writes nothing.
+**Records without a time.** Some records converted from the old shape had no
+HH:MM: their file is named `<date>-0000-…`, `-0001-…` (a sequence number that
+keeps file order, which readers parse) and their frontmatter has `time: none`,
+so the readers print them with their date alone. A record without the field
+behaves as usual.
 
 Skills that read these (`/wb-save`, `/wb-resume`, `/wb-decide`, `/close-out`,
-`/handoff`, `/quick-wins`, `/review-guide` and others) read the dossier. `wb
-migrate` converts an old-shape task file.
+`/handoff`, `/quick-wins`, `/review-guide` and others) read the dossier.
 
 ### Decision propagation
 
@@ -1109,140 +1084,6 @@ still step files.
 Vimium users: add the exclusion rule `http://127.0.0.1:*/t/*`, with no pass
 keys, so the page's own keys reach it.
 
-## `wb board --html` — the full board (v2)
-
-`wb board --html` writes `logs/board.html` (gitignored, overwritten on every
-call) — a richer, filterable view over the whole store that goes well beyond
-the plain-text table above. Open it with `xdg-open logs/board.html`, or ask
-an agent to run `wb board --html` and relay the path (the `/wb-board` skill
-was removed 2026-09-14 — zero measured usage, agents were already just
-shelling out to `wb board` manually and relaying the result).
-
-The page is one static file with a small inline script — everything it
-shows is computed from the task files at render time, with no git/gh/tmux
-calls of its own, so a render is quick even on a few hundred tasks. It has
-two parts: a **left rail** that scopes everything, and four **views** in the
-main pane.
-
-**The rail.** A text box (`/` focuses it) sits at the top and narrows the
-rail *and* the main pane of every view by title as you type. Under it is a
-row of **repo chips**: `All`, then the five repos with the most tasks
-(`dotfiles` pinned first when present), then `other` — a real set of the
-remaining repos, plus tasks with no `repo:` at all. Below that, the rail
-shows a **Doing** tree — "All doing" first, then each family with active
-work as a collapsible node, its children nested — and two groups,
-**Next** (planned tasks, collapsed by default) and **Shelf** (paused and
-prospective ones, expanded by default), with counts. Picking a row *scopes* the board: Active narrows to that task or
-family, Roadmap outlines the lane and dims the rest (never hides it — a
-roadmap of one lane is useless), Week auto-expands the picked task. "All
-doing" (or `a`) clears the scope. On the **Family** view the rail swaps to
-a flat list of families instead, and picking one shows just that family.
-The selected view, scope and repo chip are remembered in `localStorage`,
-so a re-render lands where you left it.
-
-**Keys.** `1`–`4` switch views, `j`/`k` move a cursor down/up the rail,
-`Enter` picks the cursor row, `a` clears the scope, `/` focuses the filter
-(`Esc` clears it and blurs; `Esc` elsewhere drops the cursor). A legend in
-the page caption lists them. Each view tab carries a count badge.
-
-**Active (`1`, default).** One card per task whose status is `doing` or
-`review`, ordered freshest first. A task untouched for **14+ days** is
-*stale*: it still gets a card, in full contrast with a red dot and age
-(never desaturated), but sorts after the fresh ones. Each card shows the
-title, status, repo, age, and the **lifecycle strip** — **ideate ·
-brainstorm · plan · work · review**, each rendered ✓ done, ● in progress
-(work only) or ○ pending, with n/a stages omitted entirely — plus a PR chip
-when one exists. Click a card to expand a drilldown in place beneath it:
-a "Now" line, the latest handoff, and collapsed Plan (checked/total), Done,
-Follow-ups, Decisions and Artifacts sections with counts. Task ids are
-click-to-copy (`wb resume <stem>`) and link to the task file.
-
-The strip's state is **computed live** every render, never stored — a
-task's `path:` frontmatter declares which stages it intends to go through
-(defaults to `plan,work,review`), but a real signal always wins even for an
-undeclared stage: a plan doc that shows up for a task that never declared
-`plan` still renders that stage done.
-
-**Roadmap (`2`).** A grid of lanes against five columns — *2 wks ago ·
-last wk · THIS WEEK · next · later* — with a "Today" line. One lane per
-family with active work (a milestone lane showing `done / total` with a
-bar per member) or per standalone active task. Above the lanes a
-collapsible readiness strip reads **Ready now · N · Blocked · N**: every
-planned task store-wide, split by whether its `depends_on:` blockers are
-all `done`. Open it for the pills (each capped at 8 with a "+N more"
-tail); a blocked pill names what it is waiting on. Stale tasks collapse
-into a **Stale · N doing, needs review** toggle below the grid.
-
-**Week (`3`).** Headed by the ISO week and its date range with
-active/stale counts. **This week** lists active tasks updated since
-Monday as collapsed cards (click to expand the same drilldown);
-**Carried over** groups older active work by family, with stale tasks
-behind a toggle; **Queue & shelf** closes it with "Unblocked next" and
-"Shelf" chips (the shelf count excludes done).
-
-**Family (`4`).** One block per family — a parent and its children. Each
-opens with the same summary header as an expanded Active card, then the
-Dependencies graph (below), then either a **version ladder** (when the
-parent's Plan carries a `### Version ladder status` table: one rung per
-version, with its tickets and wb tasks) or a plain **family tree** of the
-parent and its children, each child expandable in place.
-
-**Relationships.** A task can declare `depends_on: <repo>--<slug>[,...]` —
-comma-separated blocker stems, met once the blocker's `status:` is `done`.
-A dangling stem or a dependency cycle fails open (the task renders
-unblocked, with a warning naming the problem) rather than breaking the
-render. The effects show up in the Roadmap's Ready/Blocked strip, the Week
-view's "Unblocked next" chips, and the Family graph below.
-
-**Creating a task with intent:** `wb new` accepts repeatable
-`--depends-on <stem>` (each validated against a real task file). Declare
-the stages afterwards with `wb set <task> path <stages>`; a task with no
-`path:` gets the `plan,work,review` default.
-
-**Placing a child on its parent's ladder:** `wb set <child> rung <heading>`
-names the rung of the parent's dossier `ladder.md` the child works on, by
-the rung's `### ` heading (e.g. `wb set dotfiles--wb-done-rework rung "wb
-done rework"`). `wb-store` matches it ignoring case and punctuation, and the
-page server's Plan view (`wb-store serve`) draws each child under its rung.
-The value is free text and isn't checked against the ladder. Unlike the
-other `wb set` fields, `rung` may be set while the child has a live session:
-the child's own session never writes that line, and the write is locked.
-
-**Family tab — the Dependencies graph.** Each family block (a parent and
-its direct children) opens with a **Dependencies** region whenever at least
-one child has a `depends_on:` pointing at a sibling. It's a static
-node-link graph, with no scripting, laid out left to right by dependency
-depth: a task sits one column right of the deepest sibling it waits on.
-The parent itself isn't a node, and edges to tasks outside the family
-aren't drawn. A header line above it reads, for example, `Critical path:
-a → b → c · 7.5 pts remaining · 2 startable now`.
-
-| Encoding | Meaning |
-|---|---|
-| Outline and dot colour | Status — green done (muted), mauve doing/review, blue planned, grey anything else |
-| Card size | `size:` — XS, S, M, L, XL (blank draws as M) |
-| Dashed grey outline | Under-defined: fewer than 3 of the 4 signals (a non-empty Plan, acceptance criteria or a definition of done anywhere in the file, `size:` set, status past `planned`). Done tasks are always solid |
-| Peach spine | The critical path — the longest chain of remaining work, weighting XS 0.5, S 1, M 2, L 3, XL 5, done 0 |
-| Yellow outline | Startable now — `planned`, and every blocker (in or out of the family) is done |
-| Pulsing ring | In progress (`doing` or `review`); the ring stays still if your system asks for reduced motion |
-| 🔒 | Blocked by a task outside the family — hover for which |
-| START / END | No in-family predecessor / nothing in the family depends on it |
-| "You are here" line | Sits before the first column that still has unfinished work, once there are finished columns to its left |
-| Red dashed edge | A dependency cycle — the loop still renders, members in the last column |
-
-Every card links to its task file and has a hover tooltip (stem, status,
-size). A flat family with no in-family edges shows a "no dependency data
-yet — add `depends_on:`" note instead; a version-ladder family with none
-shows nothing extra. The same per-child `size`, `layer`, `critical` and
-`startable` fields, plus each family's `critical_path` and `remaining`,
-land in `~/code/tasks/.board-cache/family-rollup.json`.
-
-**Review-stamp convention.** After any `/ce-code-review` pass completes
-inside a `wb` session, run `wb reviewed` — it stamps the task's `reviewed:`
-field, which is what makes the Review stage (and the unreviewed-count
-insight) tell the truth. This is a convention, not automation — nothing
-enforces it, it only works if it's actually run.
-
 ## Keeping the task store safe
 
 `~/code/tasks` is a single git checkout that every `wb`-driven session on
@@ -1285,8 +1126,7 @@ Before starting a new agent, the wrapper also checks how many `claude`
 agents are already live across every session and prints a non-blocking
 warning to stderr past a threshold — it never refuses to start one, since
 the cgroup isolation above is the actual containment. The count is also
-surfaced ambiently in the picker header and in `wb board` / `wb board
---html`, so it's a glance rather than something you have to go looking for.
+surfaced ambiently in the picker header, so it's a glance rather than something you have to go looking for.
 
 Three env vars control it, each with a default and a `~/.zshrc.local`
 override seam (that file is sourced after these defaults, so a plain
@@ -1368,10 +1208,9 @@ these exist, not a drill-down. (The picker's header showed them too until
 2026-10-25.)
 
 > **Update:** the "no single full picture view" gap this note originally
-> flagged is closed — that's exactly what `wb board --html` (above) is now
-> for. Follow-ups and parked items still live in their own places (they're
-> not board-tracked), but live/planned/paused/done tasks across every repo
-> are one command away.
+> flagged is closed — `wb-store serve`'s families index is now for that.
+> Follow-ups and parked items still live in their own places, but
+> live/planned/paused/done tasks across every repo are one command away.
 
 ### Merging this PR
 
@@ -1388,10 +1227,10 @@ in this PR:
   revival and an HTML-in-flow help dashboard. Separate, not-yet-started
   work.
 
-[`roadmap.md`](roadmap.html) *is* the overarching plan doc — build order,
-later-additions log, and the day-bookend design principle all live there
-already. It's had a status pass alongside this guide: §8 now marks slices
-1–3 done, and §9a carries the visibility-gap note above.
+[`roadmap.md`](roadmap.html) was the overarching plan doc (build order,
+later-additions log, the day-bookend design principle). It was retired on
+2026-11-28; the dotfiles coordinator's plan (task `dotfiles--coordinator`)
+replaces it.
 
 ## If something misbehaves
 

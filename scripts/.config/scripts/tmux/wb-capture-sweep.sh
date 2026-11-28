@@ -307,7 +307,7 @@ PROMPT
       printf '\n=== RECEIVED EARLIER IN THIS SESSION (not shown in the excerpt) ===\n%s' "$earlier_received"
     printf '=== TRANSCRIPT EXCERPT ===\n%s\n=== END EXCERPT ===\n' "$excerpt"
   } | (cd "$CAPTURE_ROOT" && env -u TMUX -u TMUX_PANE WB_CAPTURE_SWEEP=1 \
-        timeout "$timeout_s" "${WB_CAPTURE_CLAUDE:-claude}" -p \
+        timeout "$timeout_s" claude -p \
         --model "$CFG_SWEEP_MODEL" --effort "$CFG_SWEEP_EFFORT" \
         --no-session-persistence --max-turns 1 --tools "" --strict-mcp-config \
         --settings '{"disableAllHooks":true}' 2>/dev/null))"

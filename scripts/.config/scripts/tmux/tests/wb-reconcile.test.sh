@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tests for `wb reconcile` (U6, detection only) — plain-bash assertions,
-# same convention as wb-board.test.sh. Sources wb.sh (safe: see the
+# Tests for `wb reconcile` (U6, detection only) — plain-bash assertions.
+# Sources wb.sh (safe: see the
 # BASH_SOURCE guard at the bottom of wb.sh), stubs wb_reconcile_repos to
 # point at real fixture git repos (worktree detection needs real git state),
 # and injects a fake `gh` via PATH so no live network call ever happens.
@@ -23,6 +23,9 @@ assert() { # <desc> <expected-regex> <actual>
     echo "       got: $(printf '%s' "$3" | head -8)"
     fail=1
   fi
+}
+assert_eq() { # <desc> <expected> <actual>
+  if [ "$2" = "$3" ]; then echo "ok   - $1"; else echo "FAIL - $1 (expected '$2', got '$3')"; fail=1; fi
 }
 
 # --- fake `gh` — no live network call, ever -----------------------------

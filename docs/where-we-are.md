@@ -46,7 +46,7 @@ updated: 2026-11-15
 The strategy page for the personal workflow: where things stand, which tool
 to reach for in which situation, what every piece is actually used for,
 and what comes next. Rewritten 2026-09-22 from the old status snapshot.
-The [Roadmap](roadmap.html) still holds the long-form history. Usage
+The [Roadmap](roadmap.html), retired on 2026-11-28, holds the long-form history. Usage
 numbers come from Claude Code transcripts, 2026-07-01 → 2026-09-22.
 
 ## At a glance
@@ -55,7 +55,7 @@ The workbench is in daily use. `wb` runs one tmux session per worktree
 over a central task store, and the **weekly loop now exists**:
 `/park` drops loose ends into a standing capture doc,
 `/weekly-review` turns the week's evidence into a handful of suggestions on
-the review page, and `wb board --html` shows everything across four views.
+the review page, and `wb-store serve` shows every family and task.
 Since 2026-09-14: the strategy family shipped the review page and `wb
 status`/`wb set` (#52), the weekly review (#55–#58), the rebuilt board
 (#59, #62), per-family `CONCEPTS.md` (#61), and the `store-specialist`
@@ -109,8 +109,8 @@ alternatives for a specific shape of the problem.
     <p class="use">/weekly-review</p>
     <p>Gathers reconcile drift, unreviewed capture entries, tasks moved, PRs merged and skill usage, shows at most a handful of suggestions on the review page, and writes <code>weeks/&lt;iso&gt;-review.md</code>. Accepted suggestions become <code>planned</code> tasks. <a href="guides/weekly-review.html">guide</a></p></div>
   <div class="wwa-card"><h3>See everything</h3>
-    <p class="use">wb board --html</p>
-    <p>Writes <code>logs/board.html</code> (local and gitignored; run <code>wb board --html</code> to make or refresh it) with four views: <b>Active</b>, <b>Roadmap</b>, <b>Week</b> and <b>Family</b> (per-family ladder and a Dependencies graph, plus a <code>family-rollup.json</code> side output). A left rail has a text filter, repo chips, a Doing tree and Next/Shelf groups; keys <kbd>1</kbd>-<kbd>4</kbd>, <kbd>j</kbd>/<kbd>k</kbd>, <kbd>Enter</kbd>, <kbd>a</kbd>, <kbd>/</kbd> and <kbd>Esc</kbd> drive it. It is generated on demand. <a href="wb-guide.html">guide</a></p></div>
+    <p class="use">wb-store serve</p>
+    <p>A local, read-only page server over the task store: the families index, every family page and every task page. <code>wb-store list</code> prints every task with its status. (The bash <code>wb board</code> and its HTML board were removed on 2026-11-28.)</p></div>
   <div class="wwa-card"><h3>Ask the task store something</h3>
     <p class="use">store-specialist (subagent)</p>
     <p>For an agent that needs "what does the store say about X" with <code>file#section</code> pointers, or needs to write a decision or frontmatter change back through the locked <code>wb</code> verbs rather than a hand edit. New in #63.</p></div>
@@ -238,7 +238,7 @@ into task files, and distinct transcripts that ran it through Bash.
 | `wb done` | 81 auto entries | <span class="chip ok">keep</span> |
 | `wb new` | 40 transcripts; the picker's `n`; used by 6 skills | <span class="chip ok">keep</span> |
 | `wb set` · `wb status` | 54 / 29 auto entries | <span class="chip ok">keep</span> (new since #52) |
-| `wb board` | 25 transcripts | <span class="chip ok">keep</span> (rebuilt #59/#62) |
+| `wb board` | 25 transcripts | removed 2026-11-28; `wb-store serve` replaces it |
 | `wb reconcile` | 12 transcripts; first evidence step of the weekly review | <span class="chip ok">keep</span> · duplicate detection → T1 |
 | `wb week` | 10 transcripts | <span class="chip acc">too new</span> |
 | `wb breakdown` | 8 auto entries | <span class="chip warn">keep · refine</span> → T3 |
@@ -256,7 +256,7 @@ into task files, and distinct transcripts that ran it through Bash.
 | [where-we-are](where-we-are.html) (this page) | 2026-09-22 | <span class="chip ok">keep</span>: the strategy page |
 | [try-it](try-it.html) · [ceremonies](ceremonies.html) · guides: [weekly-review](guides/weekly-review.html) · [park](guides/park.html) · [decide](guides/decide.html) | 2026-09-09 → 09-22 | <span class="chip ok">keep</span> |
 | [wb-guide](wb-guide.html) | 2026-08-24 | <span class="chip ok">keep</span>: its board section was rewritten for the rebuilt four-view board |
-| [roadmap](roadmap.html) | 2026-07-18 | <span class="chip warn">keep · stale</span>: long-form history; this page supersedes its "Up next" |
+| [roadmap](roadmap.html) | 2026-07-18 | <span class="chip mut">retired 2026-11-28</span>: long-form history; the dotfiles coordinator's plan replaces it |
 | [handoff-guide](handoff-guide.html) | 2026-07-19 | <span class="chip warn">keep · stale</span>: still documents pane mode, whose skill was removed in #52 |
 | [setup](setup.html) · [glossary](glossary.html) · [limitations](limitations.html) · [docgen](docgen.html) · [guide-format](guide-format.html) | 2026-07-07 → 07-14 | <span class="chip ok">keep</span> |
 | guides: [wb-save](guides/wb-save.html) · [wb-resume](guides/wb-resume.html) · [tasks-store-guards](guides/tasks-store-guards.html) · [help](guides/help.html) · [claude-tmux](guides/claude-tmux.html) · [notes-tui](guides/notes-tui.html) · [replay-tui](guides/replay-tui.html) | 2026-07-07 → 07-14 | <span class="chip ok">keep</span>. The workflow now lives here; replay-tui simplification is tracked in `replay-tui--replay-improvements` |
@@ -272,8 +272,8 @@ what shipped and what's still genuinely open. The originals are kept, word
 for word, in `docs/archive/`.
 
 <div class="wwa-cards">
-  <div class="wwa-card"><h3>Board <span class="chip ok">shipped</span></h3>
-    <p>The interim text <code>wb board</code>, then the v1 HTML board, then v2 (stepper, Pipeline, relationships, Key Findings), then the rebuild into the four views (#59, #62) and the Family Dependencies graph (#72). Jira stays excluded. Nothing is open. <a href="archive/roadmap-board.html">archived note</a></p></div>
+  <div class="wwa-card"><h3>Board <span class="chip ok">shipped, since removed</span></h3>
+    <p>Removed 2026-11-28 in favour of <code>wb-store serve</code>. Before that: the interim text <code>wb board</code>, then the v1 HTML board, then v2 (stepper, Pipeline, relationships, Key Findings), then the rebuild into the four views (#59, #62) and the Family Dependencies graph (#72). Jira stays excluded. Nothing is open. <a href="archive/roadmap-board.html">archived note</a></p></div>
   <div class="wwa-card"><h3>Day bookends <span class="chip warn">partly open</span></h3>
     <p>Single-session <code>wb down</code> and <code>wb resume</code> shipped. The "precious session id" worry went away: transcripts on disk already make resume warm. Still open: the <code>wb down --all</code> sweep and <code>wb up</code>'s startup review buffer. The weekly review now covers the start of the week. Principle: sessions can always be rebuilt from the task file. <a href="archive/roadmap-day-bookends.html">archived note</a></p></div>
   <div class="wwa-card"><h3>Handoff <span class="chip warn">partly open</span></h3>
@@ -307,6 +307,13 @@ deletion incident. `wb.sh` now only sets it if unset
 (`CODE_DIR="${CODE_DIR:-$HOME/code}"`).
 
 ## Next up
+
+The plan for what comes next lives with the dotfiles coordinator (the task
+`dotfiles--coordinator` in the task store), not on this page; a product task
+will follow it. The list below is the 2026-09-22 one, kept for history.
+
+<details>
+<summary>The 2026-09-22 "Next up" list (superseded)</summary>
 
 The old "Next up" list, re-checked 2026-09-22. None of the three items had
 landed. Each is now either in the quick-fix batch or a task with its open
@@ -344,6 +351,8 @@ decisions written down.
 - **Implicit save/resume** (`dotfiles--feat-wb-implicit-handoff`) and
   **replay-tui simplification** (`replay-tui--replay-improvements`).
 - **Personal/employer boundary rule**: deliberately the last decision.
+
+</details>
 
 ## Shipped
 

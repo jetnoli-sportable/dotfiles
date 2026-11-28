@@ -4,7 +4,7 @@ status: current
 tile: Known gaps and caveats that explain otherwise-surprising behavior, one place.
 group: workflow
 kind: page
-updated: 2026-07-14
+updated: 2026-11-28
 ---
 
 Standing, by-design properties of the workflow — not bugs, not deferred
@@ -26,9 +26,11 @@ the Sway migration is actually scheduled. Detail: [9g recap](archive/9g-gpaste-r
 The [`wb` design](archive/roadmap-wb-design.html)'s credential guard is a
 dismissible warning in the close-out review buffer, not an enforced block,
 and it only matches filenames — it doesn't scan file *contents* for
-secret-shaped strings. Acceptable while the task store stays local-only
-and single-user. **Revisit when** the store ever gets a remote, or a
-credential-shaped filename slips past the denylist.
+secret-shaped strings. It was accepted while the task store was local-only
+and single-user. The store has had a private remote since 2026-07-10, so
+that trigger has fired and this needs a fresh look. **Revisit when**
+next touching the close-out buffer, or a credential-shaped filename slips
+past the denylist.
 
 ## GPaste's clipboard history has no secrets policy
 
@@ -44,35 +46,20 @@ Detail: [9g recap](archive/9g-gpaste-recap.html).
 The classification rule for the task store and every aggregation surface
 is deliberately the *last* follow-up decision in the whole push — made
 only once everything else is in place, not before. Interim guardrails:
-the task store gets no remote; generated `INDEX`/`HUB` output carries a
-minimal work-reference redaction guard. Full writeup:
+the task store's remote is private;
+generated `INDEX`/`HUB` output carries a minimal work-reference redaction
+guard. Full writeup:
 [Open Questions](archive/roadmap-open-questions.html#personalemployer-boundary-rule-the-final-follow-up).
 
-## Task-store schema migration is incomplete
+## Task-store schema migration (resolved)
 
-PR #17 (`fc95c63`) added the `parent:` field to `tasks/README.md` and
-`TEMPLATE.md` and the task parent/child relationship is live — but the
-one-time pass to bring *existing* task files up to that schema hasn't run.
-As of 2026-07-10, only the two files that PR itself touched carry
-`parent:`/`closed:`; the rest don't, and in-practice `status:` values
-(`doing`, `planned`) already drift from the schema doc's stated
-`open|paused|done`. Expect task files in `~/code/tasks` to look
-inconsistent until that migration lands. **Revisit trigger:** see the
-"Task-store schema migration" row on [the roadmap](roadmap.html).
+Resolved. Every task file has been on the dossier layout since 2026-11-08
+(`layout: dossier`, records in `dossiers/<stem>/`), and `wb new` and the
+other seeding paths backfill blank schema keys. The one-off converter,
+`wb migrate`, was removed on 2026-11-28 once nothing was left to convert.
 
-## Roadmap anchor/link integrity is manually verified, not machine-checked
+## Roadmap anchor/link integrity (moot)
 
-`docs/roadmap.md`'s reshape (PR #18) introduced hand-typed
-`id="detail-<slug>"` anchors and `href="#detail-<slug>"` references in its
-"At a glance" visual. Nothing in the docgen pipeline validates that every
-href resolves to a matching id, or that ids stay unique — a `ce-code-review`
-pass (testing + maintainability, independently) flagged this. Three edits
-(PR #22, #26, #29) landed between the 2026-07-11 check and this one without
-the re-check this entry itself prescribes; re-verified now, as of
-**2026-07-14**: 34 ids, 7 hrefs, zero orphans, zero duplicates. A future
-edit to that page could silently break one. **Revisit trigger:** next time
-`docs/roadmap.md`'s anchor/link structure gets a substantive edit, manually
-re-run the duplicate-id + href-resolution check before merging; build a real
-docgen lint step if that manual check is ever skipped and something actually
-breaks (see U9 in `docs/plans/2026-07-14-001-feat-hub-roadmap-refresh-plan.md`
-for exactly that lint being added, closing the gap this entry describes).
+`docs/roadmap.md` was retired on 2026-11-28 and no longer changes, so its
+hand-typed `id="detail-<slug>"` anchors can no longer drift. The last check,
+on 2026-07-14, found 34 ids, 7 hrefs, zero orphans and zero duplicates.

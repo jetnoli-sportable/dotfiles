@@ -43,7 +43,7 @@ prompt leaves no mark in the transcript, so this file is how prompts per week
 get counted; `wc -l` or `cut -f3 | sort | uniq -c` over a date range answers it.
 
 The count covers every pane in every tmux session, not just the one you're in.
-Use the wb picker (`prefix` + `a`) or `wb board` to find which ones.
+Use the wb picker (`prefix` + `a`) to find which ones.
 
 ### ⚑: the behaviour watcher wants you
 
@@ -85,8 +85,8 @@ tmux list-panes -a -F '#{session_name} #{@claude_blocked}' | grep -v ' $'   # wh
 
 ## Known rough edges
 
-- **✳ and ✔ don't say which session.** The count is global; the picker or
-  `wb board` tells you where.
+- **✳ and ✔ don't say which session.** The count is global; the picker
+  tells you where.
 - **⚑ resets on a tmux restart.** The count lives in a tmux option, so a server
   restart clears it. The watcher's verdicts are kept in each feature's
   `verdicts.md`, and its next reply lists anything still open.

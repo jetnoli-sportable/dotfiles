@@ -22,7 +22,7 @@ own small file on the task's **shelf** (a per-task folder of drafts
 waiting for your review). Nobody is nudged and nothing is injected into
 the agent's context. A draft just waits until you are already reviewing
 work: a `/wb-save`, a `/close-out`, or the weekly review. In between, a
-count of waiting drafts shows in the tmux status bar and on `wb board`.
+count of waiting drafts shows in the tmux status bar.
 Hooks never write the task store; accepting a draft is an ordinary
 `wb append … Decisions` that the review step runs for you.
 
@@ -36,9 +36,9 @@ Hooks never write the task store; accepting a draft is an ordinary
                           one file per drafted decision   ▼
               ~/.local/state/wb/capture/shelved/<task>/<timestamp>-<session>.md
                           │                                │
-        ✎N in the status bar,                              ▼
-        DRAFTS column and chip on wb board       review at a checkpoint:
-        (you can see it is waiting)              /wb-save · /close-out · /wb-decide shelved
+        ✎N in the status bar                               ▼
+        (you can see it is waiting)              review at a checkpoint:
+                                                 /wb-save · /close-out · /wb-decide shelved
                                                  ├─ accept / edit -> wb append Decisions, then
                                                  │                   accept: file moves to resolved/
                                                  ├─ dismiss       -> file moves to resolved/
@@ -62,8 +62,8 @@ Hooks never write the task store; accepting a draft is an ordinary
    decision"). If it finds none it answers NONE and nothing is written.
 2. **The count shows.** The tmux status bar shows `✎N` (peach) for the
    current session's task when N drafts are waiting, and nothing at zero
-   or when the session has no task. `wb board` shows a DRAFTS column
-   (text view) and a drafts chip beside the PR chip (HTML view).
+   or when the session has no task. `/wb-decide shelved` lists every
+   task's drafts.
 3. **A checkpoint reviews.** `/wb-save`, `/close-out` and `/wb-decide
    shelved` all run the same procedure ("step 2b" in the `wb-decide`
    skill): run one checkpoint sweep and wait for it, then show each of
@@ -381,7 +381,7 @@ writes that slot any more.
   worst case is a duplicate draft (dismissed in one step) or a draft that
   lands just after a review (it stays on the shelf and in the count).
 - The status count follows the current session's task, not a total across
-  tasks. `wb board` shows every task's count.
+  tasks. `/wb-decide shelved` lists every task's drafts.
 - `/clear` and `wb resume` session-id behaviour is still being confirmed
   live.
 

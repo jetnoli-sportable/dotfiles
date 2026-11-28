@@ -26,7 +26,7 @@ Repo-specific specifics live in that repo's own memory/AGENTS.md; this rule is t
 
 ## wb sessions → reviews stamp themselves; check for the message
 
-When a `/ce-code-review` of the session's own branch finishes inside a `wb` session, the review-stamp hook (`review-stamp-hook.sh`, on Stop and SubagentStop) runs `wb reviewed`, which stamps the task file's `reviewed:` frontmatter field with today's date; `wb board --html`'s review stage relies on it to render that stage as done. The session then shows a one-line "stamped" message. If that message doesn't appear after a finished review (the hook's settings entries aren't live yet, the review targeted another PR or branch, or stamping failed and the message says why), run `wb reviewed` by hand. See `docs/wb-guide.md`'s board section for what this feeds into.
+When a `/ce-code-review` of the session's own branch finishes inside a `wb` session, the review-stamp hook (`review-stamp-hook.sh`, on Stop and SubagentStop) runs `wb reviewed`, which stamps the task file's `reviewed:` frontmatter field with today's date (wb-store's task output shows it). The session then shows a one-line "stamped" message. If that message doesn't appear after a finished review (the hook's settings entries aren't live yet, the review targeted another PR or branch, or stamping failed and the message says why), run `wb reviewed` by hand.
 
 ## Before any code review → run `/haircut` first
 

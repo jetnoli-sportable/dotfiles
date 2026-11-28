@@ -143,9 +143,8 @@ produced the proposal.
 1. **Ticket subtasks/description** — if the ticket (step 2b) already has
    subtasks, each one is a natural candidate child.
 2. **A linked ce-plan doc's Implementation Units** — if the task's `## Plan`
-   references a `docs/plans/*.md` with `Implementation Units` (check via
-   `wb_lifecycle_has_plan`, `scripts/.config/scripts/tmux/wb-lifecycle.sh`),
-   each unit (or a natural cluster of units) is a candidate child.
+   references a `docs/plans/*.md` with `Implementation Units` (open the doc
+   and look for that heading), each unit (or a natural cluster of units) is a candidate child.
 3. **A substantive `## Plan`** — apply **the substantive-plan test**: the
    section counts as substantive when it holds **≥3 actionable items**
    (top-level bullets or `###` sub-headings) **or ≥10 non-blank content

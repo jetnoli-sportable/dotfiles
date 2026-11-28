@@ -236,7 +236,7 @@
 <div class="statusbar">
   <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> workflow</span>
   <span class="gen">docgen · generated from <b>docs/limitations.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-14</span>
+  <span class="right">updated 2026-11-28</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -248,8 +248,8 @@
       <li><a href="#credential-guard-is-warn-only-not-a-hard-block">Credential guard is warn-only, not a hard block</a></li>
       <li><a href="#gpastes-clipboard-history-has-no-secrets-policy">GPaste&#39;s clipboard history has no secrets policy</a></li>
       <li><a href="#personalemployer-boundary-rule-interim-state">Personal/employer boundary rule (interim state)</a></li>
-      <li><a href="#task-store-schema-migration-is-incomplete">Task-store schema migration is incomplete</a></li>
-      <li><a href="#roadmap-anchorlink-integrity-is-manually-verified-not-machine-checked">Roadmap anchor/link integrity is manually verified, not machine-checked</a></li>
+      <li><a href="#task-store-schema-migration-resolved">Task-store schema migration (resolved)</a></li>
+      <li><a href="#roadmap-anchorlink-integrity-moot">Roadmap anchor/link integrity (moot)</a></li>
     </ul>
   </nav>
   <main>
@@ -277,9 +277,11 @@ the Sway migration is actually scheduled. Detail: <a href="archive/9g-gpaste-rec
 <p>The <a href="archive/roadmap-wb-design.html"><code>wb</code> design</a>'s credential guard is a
 dismissible warning in the close-out review buffer, not an enforced block,
 and it only matches filenames — it doesn't scan file <em>contents</em> for
-secret-shaped strings. Acceptable while the task store stays local-only
-and single-user. <strong>Revisit when</strong> the store ever gets a remote, or a
-credential-shaped filename slips past the denylist.</p>
+secret-shaped strings. It was accepted while the task store was local-only
+and single-user. The store has had a private remote since 2026-07-10, so
+that trigger has fired and this needs a fresh look. <strong>Revisit when</strong>
+next touching the close-out buffer, or a credential-shaped filename slips
+past the denylist.</p>
 <h2 id="gpastes-clipboard-history-has-no-secrets-policy">GPaste's clipboard history has no secrets policy</h2>
 <p>Clipboard history persists to disk indefinitely (<code>save-history true</code>) with
 no expiry or secret-detection — copying a token or password puts it in the
@@ -291,34 +293,19 @@ Detail: <a href="archive/9g-gpaste-recap.html">9g recap</a>.</p>
 <p>The classification rule for the task store and every aggregation surface
 is deliberately the <em>last</em> follow-up decision in the whole push — made
 only once everything else is in place, not before. Interim guardrails:
-the task store gets no remote; generated <code>INDEX</code>/<code>HUB</code> output carries a
-minimal work-reference redaction guard. Full writeup:
+the task store's remote is private;
+generated <code>INDEX</code>/<code>HUB</code> output carries a minimal work-reference redaction
+guard. Full writeup:
 <a href="archive/roadmap-open-questions.html#personalemployer-boundary-rule-the-final-follow-up">Open Questions</a>.</p>
-<h2 id="task-store-schema-migration-is-incomplete">Task-store schema migration is incomplete</h2>
-<p>PR #17 (<code>fc95c63</code>) added the <code>parent:</code> field to <code>tasks/README.md</code> and
-<code>TEMPLATE.md</code> and the task parent/child relationship is live — but the
-one-time pass to bring <em>existing</em> task files up to that schema hasn't run.
-As of 2026-07-10, only the two files that PR itself touched carry
-<code>parent:</code>/<code>closed:</code>; the rest don't, and in-practice <code>status:</code> values
-(<code>doing</code>, <code>planned</code>) already drift from the schema doc's stated
-<code>open|paused|done</code>. Expect task files in <code>~/code/tasks</code> to look
-inconsistent until that migration lands. <strong>Revisit trigger:</strong> see the
-&quot;Task-store schema migration&quot; row on <a href="roadmap.html">the roadmap</a>.</p>
-<h2 id="roadmap-anchorlink-integrity-is-manually-verified-not-machine-checked">Roadmap anchor/link integrity is manually verified, not machine-checked</h2>
-<p><code>docs/roadmap.md</code>'s reshape (PR #18) introduced hand-typed
-<code>id=&quot;detail-&lt;slug&gt;&quot;</code> anchors and <code>href=&quot;#detail-&lt;slug&gt;&quot;</code> references in its
-&quot;At a glance&quot; visual. Nothing in the docgen pipeline validates that every
-href resolves to a matching id, or that ids stay unique — a <code>ce-code-review</code>
-pass (testing + maintainability, independently) flagged this. Three edits
-(PR #22, #26, #29) landed between the 2026-07-11 check and this one without
-the re-check this entry itself prescribes; re-verified now, as of
-<strong>2026-07-14</strong>: 34 ids, 7 hrefs, zero orphans, zero duplicates. A future
-edit to that page could silently break one. <strong>Revisit trigger:</strong> next time
-<code>docs/roadmap.md</code>'s anchor/link structure gets a substantive edit, manually
-re-run the duplicate-id + href-resolution check before merging; build a real
-docgen lint step if that manual check is ever skipped and something actually
-breaks (see U9 in <code>docs/plans/2026-07-14-001-feat-hub-roadmap-refresh-plan.md</code>
-for exactly that lint being added, closing the gap this entry describes).</p>
+<h2 id="task-store-schema-migration-resolved">Task-store schema migration (resolved)</h2>
+<p>Resolved. Every task file has been on the dossier layout since 2026-11-08
+(<code>layout: dossier</code>, records in <code>dossiers/&lt;stem&gt;/</code>), and <code>wb new</code> and the
+other seeding paths backfill blank schema keys. The one-off converter,
+<code>wb migrate</code>, was removed on 2026-11-28 once nothing was left to convert.</p>
+<h2 id="roadmap-anchorlink-integrity-moot">Roadmap anchor/link integrity (moot)</h2>
+<p><code>docs/roadmap.md</code> was retired on 2026-11-28 and no longer changes, so its
+hand-typed <code>id=&quot;detail-&lt;slug&gt;&quot;</code> anchors can no longer drift. The last check,
+on 2026-07-14, found 34 ids, 7 hrefs, zero orphans and zero duplicates.</p>
 </article>
     <footer>
   Generated by <code>docgen</code> from <code>docs/limitations.md</code>. Rebuild:

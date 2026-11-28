@@ -109,7 +109,7 @@ alias s="~/.config/scripts/tmux/session.sh"
 alias N="~/.config/scripts/tmux/notes.sh"
 # legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it
 alias ca="~/.config/scripts/tmux/claude-sessions.sh"
-# the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html
+# the workbench: wb new / wb (picker) / wb done — docs/wb-guide.html
 alias wb="~/.config/scripts/tmux/wb.sh"
 
 # notes-tui capture hot-path (roadmap slice 4a, started 2026-07-07):
@@ -139,7 +139,7 @@ pgh() { GH_TOKEN="$(secret-tool lookup service gh account personal)" command gh 
 # this block rather than sourcing the whole .zshrc (which does a network
 # zinit clone on a cold cache).
 : ${WB_AGENT_MEM_HIGH:=14G} ${WB_AGENT_MEM_MAX:=18G} ${WB_AGENT_WARN_AT:=8}
-# Exported so wb.sh (a separate bash process — the picker, `wb board`) reads
+# Exported so wb.sh (a separate bash process — the picker) reads
 # the same live threshold this wrapper warns at, instead of a second
 # hardcoded copy that could drift from whatever ~/.zshrc.local overrides.
 export WB_AGENT_MEM_HIGH WB_AGENT_MEM_MAX WB_AGENT_WARN_AT
@@ -202,7 +202,7 @@ claude() {
 # The deny list keeps the watcher out of other panes and other tasks' files:
 # tmux takes unique command prefixes (send, pasteb) and flags before the
 # command, hence the globs; wb and wb-capture.sh verbs that write are denied
-# both bare and by path, leaving read-only ones like `wb board` usable. A
+# both bare and by path, leaving read-only ones like `wb family` usable. A
 # prefix list can't see inside `bash -c` or a shell redirect, so the skill's
 # read-only rule stays the backstop for those. The compaction window sits
 # well above the watcher's starting context (about 57k tokens on the first

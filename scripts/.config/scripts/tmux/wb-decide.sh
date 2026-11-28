@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # wb-decide.sh — the surface verbs of /decide: decide-path, decide-buffer,
 # decide-open and decide-clear. Sourced lazily by wb.sh's dispatch (like
-# wb-migrate.sh), so this file only defines functions; no top-level command
+# wb-continue.sh), so this file only defines functions; no top-level command
 # runs just by sourcing it. It calls wb.sh's own helpers at run time.
 #
 # A task (or, outside one, a tmux session) with questions waiting on Jet has
@@ -66,13 +66,9 @@ _wb_decide_target() {
 # _wb_decide_task_session <task_file> — the live tmux session whose @task
 # points at the file, if any (the scan _wb_refuse_if_live_session does).
 _wb_decide_task_session() {
-  local session cur
-  while IFS= read -r session; do
-    [ -n "$session" ] || continue
-    cur="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
-    if [ "$cur" = "$1" ]; then printf '%s\n' "$session"; return 0; fi
-  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
-  return 0
+  local session=""
+  read -r session < <(wb_sessions_with_task "$1") || true
+  [ -z "$session" ] || printf '%s\n' "$session"
 }
 
 # _wb_decide_pane_exists <pane_id> — tmux prints nothing and exits 0 for a
@@ -424,12 +420,11 @@ cmd_decision() {
     id="${ids[$i]}"
     list+="${list:+, }$id"
     said+="${said:+, }$id \"$title\""
-    if ! wb_set_frontmatter_field "$dir/$id.md" status superseded \
-       || ! wb_set_frontmatter_field "$dir/$id.md" superseded_by "[$new]"; then
+    if ! wb_fm_write "$dir/$id.md" status superseded superseded_by "[$new]"; then
       bad=1; echo "wb decision: wrote $new but could not mark '$id' superseded; fix $dir/$id.md by hand (status: superseded, superseded_by: [$new])" >&2
     fi
   done
-  if [ "${#sup[@]}" -gt 1 ]; then wb_set_frontmatter_field "$dir/$new.md" supersedes "[$list]" || bad=1; fi
+  if [ "${#sup[@]}" -gt 1 ]; then wb_set_frontmatter "$dir/$new.md" supersedes "[$list]" || bad=1; fi
   wb_render_views "$file"
   wb_task_lock_release "$file"
   [ "$bad" = 0 ] || exit 1

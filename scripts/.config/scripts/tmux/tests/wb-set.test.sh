@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for `wb set` (cmd_set) — set one board-metadata frontmatter field on
 # a STORE-ONLY task, under the per-task lock, via the shared
-# wb_set_frontmatter_field rewrite core also used by `wb status`. Same
+# wb_set_frontmatter rewrite core also used by `wb status`. Same
 # fixture/harness convention as wb-status.test.sh (fixture TASKS_DIR, source
 # wb.sh, set +e to capture non-zero exits, a real throwaway tmux session for
 # the live-session-refusal scenario).
@@ -452,7 +452,7 @@ assert_eq "pr unset: cleared" "" "$(wb_get_frontmatter "$TASKS_DIR/proj--pr-a.md
 assert_eq "pr unset: key kept" "1" "$(grep -c '^pr:' "$TASKS_DIR/proj--pr-a.md")"
 
 # =============================================================================
-# Scenario: wb_set_frontmatter_field / cmd_set dedupe regression — a
+# Scenario: wb_set_frontmatter / cmd_set dedupe regression — a
 # TEMPLATE.md-shaped file already ships an empty `priority:`/`value:` line
 # right after `size:`. The `after_key=size` insertion path must not fire
 # just because it walks past `size:` before reaching that existing (empty,

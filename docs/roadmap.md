@@ -1,11 +1,17 @@
 ---
 title: Roadmap — the personal workflow
-status: current
-tile: Up next, a live table, a parked pool, what we're not doing, and a shipped ledger — one click to the detail behind each item.
-group: start-here
+status: archive
+tile: Retired 2026-11-28. The workflow's old plan and shipped ledger, kept as history.
+group: design-notes
 kind: guide
-updated: 2026-07-18
+updated: 2026-11-28
 ---
+
+> **Retired 2026-11-28.** This page is no longer the plan. What happens next
+> in dotfiles is the dotfiles coordinator's plan (the task
+> `dotfiles--coordinator` in the task store), and a product task will follow
+> it. What's here is kept as history; it was last brought up to date on
+> 2026-07-18.
 
 The roadmap for the whole personal workflow (tmux/Claude tooling, the
 central task store, notes-tui, the docs project) — several pieces already

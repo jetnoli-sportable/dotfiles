@@ -133,13 +133,12 @@ assert_eq "outside tmux opens no editor" "" "$edited"
 # --- 7. the CLI dispatch arm exists ---------------------------------------
 # Guards the wiring, not the function: a task-file case must be present in
 # wb.sh's dispatch or the tmux bind silently falls through to the picker.
-dispatch="$(grep -cE '^\s+task-file\)\s+shift; cmd_task_file' "$WB")"
+dispatch="$(awk '/^  wb_verbs=\($/ {p=1} p{print} p && /^  \)$/ {exit}' "$WB" | grep -cE '(^| )task-file( |$)')"
 assert_eq "wb.sh dispatches 'task-file' to cmd_task_file" "1" "$dispatch"
 
 # --- 8. wb_task_files accepts only <repo>--<slug>.md stems ------------------
 # Loose Markdown in the store (AGENTS.md, CLAUDE.md, README.md, TEMPLATE.md, a
-# recovery note) must never be returned as a task file: `wb migrate --all`
-# and every walker would otherwise treat them as tasks.
+# recovery note) must never be returned as a task file: every walker would otherwise treat them as tasks.
 TF_STORE="$FIXTURE/tf-store"; mkdir -p "$TF_STORE/dossiers/proj--dir"
 for n in proj--real.md be--monorepo--feat-x.md a--b.md AGENTS.md CLAUDE.md README.md TEMPLATE.md RECOVERY-NOTES-2026-07-10.md notes.md --lead.md proj--.md; do
   printf -- '---\nstatus: x\n---\n' > "$TF_STORE/$n"

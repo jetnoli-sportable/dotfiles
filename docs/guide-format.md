@@ -36,7 +36,7 @@ a subsystem genuinely doesn't fit five sections, not as a default.
 
 `wb-guide.md` and `handoff-guide.md` don't document one skill — they
 document a family of related subcommands (`wb new`/`wb done`/`wb
-breakdown`/`wb board --html`, or the whole `/handoff` surface) on one
+breakdown`, or the whole `/handoff` surface) on one
 page, each subcommand getting its own `##`/`###` section rather than its
 own file. Use this shape when a set of skills are tightly coupled enough
 that reading them separately would mean constantly flipping between

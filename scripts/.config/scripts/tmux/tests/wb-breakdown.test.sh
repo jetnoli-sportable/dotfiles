@@ -185,10 +185,10 @@ assert_eq "ticket-parent --title: sets the H1 heading from the ticket summary" "
 # branch harmlessly rewrites a blank `reviewed:` -> `reviewed: ` on every
 # re-seed regardless of --jira, a pre-existing, unrelated quirk — scope
 # the assertion to what the fix actually claims: the body doesn't duplicate.)
-before_plan_reseed="$(wb_board_section "$ticket_file" "Plan")"
+before_plan_reseed="$(_wb_section_text "$ticket_file" "Plan")"
 out_reseed="$(printf '%s\n' "$jira_body" \
   | cmd_new --planned --jira 'https://sportable.atlassian.net/browse/SFB-1234' --body - proj feat-ticket-parent 2>&1)"
-assert_eq "ticket-parent re-run: ## Plan section unchanged (body not duplicated)" "$before_plan_reseed" "$(wb_board_section "$ticket_file" "Plan")"
+assert_eq "ticket-parent re-run: ## Plan section unchanged (body not duplicated)" "$before_plan_reseed" "$(_wb_section_text "$ticket_file" "Plan")"
 body_occurrences="$(grep -c 'ticket description line 1' "$ticket_file")"
 assert_eq "ticket-parent re-run: body appears exactly once" 1 "$body_occurrences"
 
@@ -1111,7 +1111,7 @@ assert_eq "U3 idempotent re-apply: handoff NOT duplicated" 1 "$handoff_count_2"
 # --- worktrees: moves to the continuing child with branch:/worktree: (R15) ---
 git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u6x ".worktrees/feat-u6x" >/dev/null 2>&1
 mk_u3_parent proj--feat-u6x feat-u6x .worktrees/feat-u6x
-wb_set_frontmatter_field "$TASKS_DIR/proj--feat-u6x.md" worktrees "other/.worktrees/feat-u6x" worktree
+wb_set_frontmatter "$TASKS_DIR/proj--feat-u6x.md" worktrees "other/.worktrees/feat-u6x" worktree
 u3_buffer | sed 's/feat-u3/feat-u6x/g' > "$U3_BUF/family-u6x.md"
 cmd_breakdown --apply "$U3_BUF/family-u6x.md" >/dev/null 2>&1; rc_u6x=$?
 assert_eq "U6 apply with an extra worktree: exits 0" 0 "$rc_u6x"

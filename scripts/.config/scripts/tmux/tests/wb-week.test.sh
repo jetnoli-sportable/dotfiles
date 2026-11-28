@@ -127,8 +127,7 @@ assert "stamp round-trip: date/repo/branch shape present" \
 # Scenario: `wb week record` on the very first-ever review — no prior
 # weeks/*-review.md exists, so `_wb_week_previous_record`'s pipeline finds
 # zero matches and exits 1. Under this suite's `set +e` that's invisible,
-# so this scenario invokes wb.sh as a real subprocess (same convention as
-# wb-board.test.sh) to exercise the actual `set -euo pipefail` the CLI runs
+# so this scenario invokes wb.sh as a real subprocess to exercise the actual `set -euo pipefail` the CLI runs
 # under. Regression for: that non-zero return propagated through
 # `prev="$(_wb_week_previous_record "$iso")"` and killed the whole `wb week
 # record` call via set -e before it ever wrote the record — every
