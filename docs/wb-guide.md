@@ -760,7 +760,7 @@ claude_sessions:      # optional: id@iso-ts[@primary],... — a record of
                       # `wb down`/`wb pause`, blanked by `wb done`. Never
                       # consulted for resume — Claude's own transcript
                       # store on disk is the source of truth for that.
-layout: dossier       # marker that `wb migrate` and wb-store read
+layout: dossier       # marker that wb-store reads
 ---
 # Title
 
@@ -818,12 +818,8 @@ into its own file in the task's dossier. Every task uses it: `wb new`,
 task" all get `layout: dossier`, a `## Now` placeholder that points at the
 dossier's `brief.md` (where `/handoff` writes the opening ask), and a drafted
 `brief.md`. Nothing in `wb` branches on the marker; it is there for
-`wb migrate` and wb-store. `wb migrate <task>|--all` converts an old-shape task
-file (one written by hand or brought from elsewhere) into this layout. Records
-written to such a file before it is migrated (a `wb append`, a handoff note)
-already sit in its dossier; migrate adds the converted records beside them,
-and stops with nothing written only when a converted record's file name is
-already taken.
+wb-store. (`wb migrate`, the one-off converter from the old section-based
+shape, was removed on 2026-11-28 once every task had been converted.)
 
 For every task:
 
@@ -861,7 +857,7 @@ For every task:
   (proposed decisions under their own "Proposed" heading, then in force, then
   superseded collapsed), `handoffs.md` (newest first) and `index.md`. Read these
   for an overview; read the record files when you need the exact entry. Never edit
-  a view. A record whose source had no time (see "One record shape" below) is
+  a view. A record with `time: none` (see "Records without a time" below) is
   headed with its date alone in `handoffs.md`.
 - **The views are not in git.** From the switch the store's `.gitignore` lists
   them, so a commit names record files and never a view: `git add
@@ -895,33 +891,14 @@ For every task:
   replaces the per-PR test guide) uses `task:<its task> done`, so it retires
   when `wb done` closes the task.
 
-**One record shape.** `wb migrate` writes each decision the way `wb append`
-does: the `# ` line carries the full title (the file name's slug still comes from
-a title cut at 100 characters) and the source's `### <date> <HH:MM> — <title>`
-heading is not repeated in the body, because its date and time are in the file
-name and its title is on the `# ` line. Handoff records keep their heading line,
-as the live writer does. When a source entry had no HH:MM, `wb migrate` still
-names the file `<date>-0000-…`, `-0001-…` (a sequence number that keeps file
-order, which readers parse) but adds `time: none` to the record's frontmatter,
-and the readers print such a record with its date alone. A record without
-the field behaves as before. Records without a time are decisions and handoffs;
-open items never carried one.
-
-**`wb migrate --tidy <task>|--all [--dry-run]`** repairs tasks migrated before
-that fix. It runs once, at the switch. For each decision record whose first body
-line is a dated `###` heading that duplicates the record (same date, same time if
-the heading has one, and a title the `# ` line equals or is the clipped form of),
-it moves the full title to the `# ` line, drops the heading, and adds
-`time: none` when the heading had no HH:MM and the name's HHMM is a 00NN sequence
-number. A date-only entry (first line `DATE — …`, `- DATE …` or `**DATE …`, the same
-date as its name, no HH:MM after it, a 00NN name) just gains `time: none`. Handoff
-records stamped the same way, and the migrate history handoff, get `time: none`. A
-record whose first body line is neither is never touched. It takes each task's lock, rebuilds the views, changes nothing on a second
-run, and with `--dry-run` prints what would change per record and writes nothing.
+**Records without a time.** Some records converted from the old shape had no
+HH:MM: their file is named `<date>-0000-…`, `-0001-…` (a sequence number that
+keeps file order, which readers parse) and their frontmatter has `time: none`,
+so the readers print them with their date alone. A record without the field
+behaves as usual.
 
 Skills that read these (`/wb-save`, `/wb-resume`, `/wb-decide`, `/close-out`,
-`/handoff`, `/quick-wins`, `/review-guide` and others) read the dossier. `wb
-migrate` converts an old-shape task file.
+`/handoff`, `/quick-wins`, `/review-guide` and others) read the dossier.
 
 ### Decision propagation
 

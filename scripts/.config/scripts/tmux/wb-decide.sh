@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # wb-decide.sh — the surface verbs of /decide: decide-path, decide-buffer,
 # decide-open and decide-clear. Sourced lazily by wb.sh's dispatch (like
-# wb-migrate.sh), so this file only defines functions; no top-level command
+# wb-continue.sh), so this file only defines functions; no top-level command
 # runs just by sourcing it. It calls wb.sh's own helpers at run time.
 #
 # A task (or, outside one, a tmux session) with questions waiting on Jet has

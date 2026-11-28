@@ -137,23 +137,6 @@
 #                                    Jet's own release of a ready, failed or armed request: the same
 #                                    checks as the Stop hook, then the restart (live even in shadow
 #                                    mode), started detached; one line per task released or refused
-#   wb migrate <task>|--all [--dry-run]
-#                                    convert an old-shape task file (one written by hand or
-#                                    brought from elsewhere) into the dossier layout
-#                                    (decisions/, handoffs/, open-items/, newest handoff and an
-#                                    empty ## Now kept in the task file), taking each task's own
-#                                    lock; prints a before/after count line per task, leaves any
-#                                    task whose counts or lines don't add up unmigrated, and ends
-#                                    with a report of skipped (lock held) and exception tasks;
-#                                    a task that already has layout: dossier is skipped, so a
-#                                    second run changes nothing; --dry-run writes nothing
-#   wb migrate --tidy <task>|--all [--dry-run]
-#                                    one-off repair for tasks ALREADY on the layout: in each
-#                                    decision record whose body starts with a repeated dated `###`
-#                                    heading, put the full title on the `# ` line, drop the heading
-#                                    and add `time: none` when it had no HH:MM (handoff records
-#                                    with no recorded time get `time: none` too); idempotent,
-#                                    takes each task's lock, rebuilds the views, --dry-run counts
 #   wb views <task>... | --all       rebuild the generated views (decisions.md, handoffs.md,
 #                                    index.md) under each task's lock; they are not in git, so run
 #                                    it in a fresh clone (the store's post-merge and post-rewrite
@@ -1409,8 +1392,8 @@ _wb_insert_plan_body() {
 }
 
 # _wb_new_seed <task_file> [<seed body>] — KTD25: every NEW task is born in
-# the dossier layout. Marks `layout: dossier` (the marker wb-store and
-# `wb migrate` read; nothing in wb branches on it), drops any
+# the dossier layout. Marks `layout: dossier` (the marker wb-store
+# reads; nothing in wb branches on it), drops any
 # Decisions/Done/Follow-ups skeleton an older TEMPLATE.md still carries, makes
 # sure there is a `## Now` placeholder, and drafts dossiers/<stem>/brief.md
 # (type, why, done when, not doing, claims marked checked/assumed with a date;
@@ -3198,17 +3181,6 @@ wb_reconcile_apply() {
 # adds the locked apply execution on top of this same parse/validate core.
 # ---------------------------------------------------------------------------
 
-# wb_breakdown_report_path <parent_stem> — twin of wb_reconcile_report_path,
-# keeping the `|| true` on the git lookup (a bare failing `$(git …)` under
-# `set -e` was a real shipped bug there). One buffer per parent, unlike
-# reconcile's single global report.
-wb_breakdown_report_path() {
-  local stem="$1" root
-  root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
-  [ -n "$root" ] || root="$CODE_DIR/dotfiles"
-  printf '%s/logs/breakdowns/%s.md\n' "$root" "$stem"
-}
-
 # _wb_bd_checkbox_state <line> — classify a line against KTD1's checkbox
 # grammar. "extra indentation" and `*` bullets are accepted forms (test
 # scenario); a line that LOOKS like an attempted checkbox (bullet + `[`)
@@ -4664,8 +4636,7 @@ cmd_append() {
 # ---------------------------------------------------------------------------
 # Dossier layout (stage 2, U10) — record files, generated views, `wb now`,
 # `wb decide-supersede`. Every task is on this layout; `layout: dossier` in
-# its frontmatter is a marker for wb-store and `wb migrate`, and nothing here
-# branches on it. Callers hold the per-task lock
+# its frontmatter is a marker for wb-store, and nothing here branches on it. Callers hold the per-task lock
 # (cmd_append/cmd_now/cmd_decide_supersede take it; wb_append_handoff's
 # callers already hold it) — nothing below locks, so nothing can deadlock or
 # double-acquire. Strings reach awk through ENVIRON, never `awk -v`, and awk
@@ -4735,12 +4706,6 @@ _wb_write_atomic() {
 # — write ONE record file (KTD17) and leave its id (file name without .md) in
 # WB_RECORD_ID. Creates the dossier and series dir on first write. A name
 # collision gets -2, -3. Does not rebuild views (callers do, once).
-# Two optional inputs, set only by `wb migrate` as one-call variable prefixes:
-# WB_RECORD_TIME_NONE=1 adds `time: none` to a decision's frontmatter (the
-# source entry had no time; the HHMM in the name is only a sequence number),
-# and WB_RECORD_SLUG_FROM=<text> makes the file name's slug come from <text>
-# instead of the title (migrate keeps the full title on the `# ` line but
-# names the file from the clipped one).
 _wb_record_write_file() {
   local file="$1" series="$2" sup="$3" text="$4"
   local dir; dir="$(_wb_dossier_dir "$file")"
@@ -4749,7 +4714,7 @@ _wb_record_write_file() {
   _wb_record_parse "$text"
   local date="${_R_DATE:-$(date '+%Y-%m-%d')}" hm="${_R_HM:-$(date '+%H%M')}"
   local title="${_R_TITLE:-untitled}"
-  local slug; slug="$(_wb_slug "${WB_RECORD_SLUG_FROM:-$title}")"
+  local slug; slug="$(_wb_slug "$title")"
   local base content nl=$'\n'
   case "$series" in
     decisions)
@@ -4757,7 +4722,6 @@ _wb_record_write_file() {
       content="---${nl}status: in-force${nl}"
       if [ -n "$sup" ]; then content+="supersedes: [$sup]${nl}"; else content+="supersedes: []${nl}"; fi
       content+="superseded_by: []${nl}review_at:${nl}"
-      if [ "${WB_RECORD_TIME_NONE:-}" = 1 ]; then content+="time: none${nl}"; fi
       content+="---${nl}# $title"
       if [ -n "$_R_BODY" ] && [ "$_R_BODY" != "$title" ]; then content+="${nl}${nl}$_R_BODY"; fi
       ;;
@@ -4930,11 +4894,6 @@ _wb_replace_block() {
 # entry out as handoffs/<YYYY-MM-DD-HHMM>.md (-2, -3 on a collision), with
 # `source:` and `auto:` taken from its "### <ts> — <source> [(auto)]" heading
 # (now / blank / false when it has none). The entry text is kept verbatim.
-# Optional 3rd and 4th arguments (YYYY-MM-DD, HHMM) replace "now" as the
-# stamp when the heading is not that shape; `wb migrate` passes them so an
-# old entry with a loose heading gets a deterministic name. A 5th argument
-# "none" adds `time: none` to the frontmatter: the stamp's HHMM is then only
-# a sequence number, not a time anyone recorded.
 _wb_handoff_move_entry() {
   local hdir="$1" entry; entry="$(_wb_trim_blank_lines "$2")"
   if _wb_blank_only "$entry"; then return 0; fi
@@ -4944,13 +4903,11 @@ _wb_handoff_move_entry() {
     date="${BASH_REMATCH[1]}"; hm="${BASH_REMATCH[2]}${BASH_REMATCH[3]}"; source="${BASH_REMATCH[5]}"
     if [[ "$source" == *" (auto)" ]]; then auto="true"; source="${source% (auto)}"; fi
   fi
-  if [ -z "$date" ]; then date="${3:-$(date '+%Y-%m-%d')}"; hm="${4:-$(date '+%H%M')}"; fi
+  if [ -z "$date" ]; then date="$(date '+%Y-%m-%d')"; hm="$(date '+%H%M')"; fi
   local base="$date-$hm" id n=1 nl=$'\n'
   id="$base"
   while [ -e "$hdir/$id.md" ]; do n=$((n + 1)); id="$base-$n"; done
-  local tfield=""
-  if [ "${5:-}" = none ]; then tfield="time: none${nl}"; fi
-  _wb_write_atomic "$hdir/$id.md" "---${nl}source: $source${nl}auto: $auto${nl}${tfield}---${nl}$entry"
+  _wb_write_atomic "$hdir/$id.md" "---${nl}source: $source${nl}auto: $auto${nl}---${nl}$entry"
 }
 
 # wb_handoff_write <task_file> <body> — KTD20's move-and-replace, the ONE
@@ -9268,19 +9225,13 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     followup-done) shift; cmd_followup_done "$@" ;;
     # Sourced only here: wb.sh is stowed file by file, so a top-level source
     # of a new file would break every wb command between a merge and the
-    # re-stow that links it. migrate is a one-off; nothing else needs it.
-    migrate)
-      shift
-      # shellcheck source=wb-migrate.sh
-      source "$SCRIPT_DIR/wb-migrate.sh"
-      cmd_migrate "$@" ;;
-    # Same lazy source again: wb-continue.sh is new.
+    # re-stow that links it.
     continue)
       shift
       # shellcheck source=wb-continue.sh
       source "$SCRIPT_DIR/wb-continue.sh"
       wbc_main "$@" ;;
-    # Same lazy source as migrate, for the same reason: wb-decide.sh is new.
+    # Same lazy source as continue, for the same reason: wb-decide.sh is new.
     decide-path|decide-buffer|decide-open|decide-clear|decision|decide-spec-check)
       _wb_dcmd="$1"; shift
       # shellcheck source=wb-decide.sh

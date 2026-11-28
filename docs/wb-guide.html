@@ -1005,7 +1005,7 @@ claude_sessions:      # optional: id@iso-ts[@primary],... — a record of
                       # `wb down`/`wb pause`, blanked by `wb done`. Never
                       # consulted for resume — Claude's own transcript
                       # store on disk is the source of truth for that.
-layout: dossier       # marker that `wb migrate` and wb-store read
+layout: dossier       # marker that wb-store reads
 ---
 # Title
 
@@ -1052,12 +1052,8 @@ into its own file in the task's dossier. Every task uses it: <code>wb new</code>
 task&quot; all get <code>layout: dossier</code>, a <code>## Now</code> placeholder that points at the
 dossier's <code>brief.md</code> (where <code>/handoff</code> writes the opening ask), and a drafted
 <code>brief.md</code>. Nothing in <code>wb</code> branches on the marker; it is there for
-<code>wb migrate</code> and wb-store. <code>wb migrate &lt;task&gt;|--all</code> converts an old-shape task
-file (one written by hand or brought from elsewhere) into this layout. Records
-written to such a file before it is migrated (a <code>wb append</code>, a handoff note)
-already sit in its dossier; migrate adds the converted records beside them,
-and stops with nothing written only when a converted record's file name is
-already taken.</p>
+wb-store. (<code>wb migrate</code>, the one-off converter from the old section-based
+shape, was removed on 2026-11-28 once every task had been converted.)</p>
 <p>For every task:</p>
 <ul>
 <li><strong>The task file</strong> holds frontmatter, <code># Title</code>, <code>## Now</code>, <code>## Plan</code> and one
@@ -1094,7 +1090,7 @@ of the counts.</li>
 (proposed decisions under their own &quot;Proposed&quot; heading, then in force, then
 superseded collapsed), <code>handoffs.md</code> (newest first) and <code>index.md</code>. Read these
 for an overview; read the record files when you need the exact entry. Never edit
-a view. A record whose source had no time (see &quot;One record shape&quot; below) is
+a view. A record with <code>time: none</code> (see &quot;Records without a time&quot; below) is
 headed with its date alone in <code>handoffs.md</code>.</li>
 <li><strong>The views are not in git.</strong> From the switch the store's <code>.gitignore</code> lists
 them, so a commit names record files and never a view: <code>git add dossiers/&lt;stem&gt;/decisions/&lt;file&gt;.md</code>, not <code>git add dossiers/&lt;stem&gt;/decisions.md</code>.
@@ -1127,30 +1123,13 @@ under Retired. A <code>test-guide</code>-tagged page (older PRs; <code>/verify-p
 replaces the per-PR test guide) uses <code>task:&lt;its task&gt; done</code>, so it retires
 when <code>wb done</code> closes the task.</li>
 </ul>
-<p><strong>One record shape.</strong> <code>wb migrate</code> writes each decision the way <code>wb append</code>
-does: the <code># </code> line carries the full title (the file name's slug still comes from
-a title cut at 100 characters) and the source's <code>### &lt;date&gt; &lt;HH:MM&gt; — &lt;title&gt;</code>
-heading is not repeated in the body, because its date and time are in the file
-name and its title is on the <code># </code> line. Handoff records keep their heading line,
-as the live writer does. When a source entry had no HH:MM, <code>wb migrate</code> still
-names the file <code>&lt;date&gt;-0000-…</code>, <code>-0001-…</code> (a sequence number that keeps file
-order, which readers parse) but adds <code>time: none</code> to the record's frontmatter,
-and the readers print such a record with its date alone. A record without
-the field behaves as before. Records without a time are decisions and handoffs;
-open items never carried one.</p>
-<p><strong><code>wb migrate --tidy &lt;task&gt;|--all [--dry-run]</code></strong> repairs tasks migrated before
-that fix. It runs once, at the switch. For each decision record whose first body
-line is a dated <code>###</code> heading that duplicates the record (same date, same time if
-the heading has one, and a title the <code># </code> line equals or is the clipped form of),
-it moves the full title to the <code># </code> line, drops the heading, and adds
-<code>time: none</code> when the heading had no HH:MM and the name's HHMM is a 00NN sequence
-number. A date-only entry (first line <code>DATE — …</code>, <code>- DATE …</code> or <code>**DATE …</code>, the same
-date as its name, no HH:MM after it, a 00NN name) just gains <code>time: none</code>. Handoff
-records stamped the same way, and the migrate history handoff, get <code>time: none</code>. A
-record whose first body line is neither is never touched. It takes each task's lock, rebuilds the views, changes nothing on a second
-run, and with <code>--dry-run</code> prints what would change per record and writes nothing.</p>
+<p><strong>Records without a time.</strong> Some records converted from the old shape had no
+HH:MM: their file is named <code>&lt;date&gt;-0000-…</code>, <code>-0001-…</code> (a sequence number that
+keeps file order, which readers parse) and their frontmatter has <code>time: none</code>,
+so the readers print them with their date alone. A record without the field
+behaves as usual.</p>
 <p>Skills that read these (<code>/wb-save</code>, <code>/wb-resume</code>, <code>/wb-decide</code>, <code>/close-out</code>,
-<code>/handoff</code>, <code>/quick-wins</code>, <code>/review-guide</code> and others) read the dossier. <code>wb migrate</code> converts an old-shape task file.</p>
+<code>/handoff</code>, <code>/quick-wins</code>, <code>/review-guide</code> and others) read the dossier.</p>
 <h3 id="decision-propagation">Decision propagation</h3>
 <p>A decision recorded in one task (a file in its dossier's <code>decisions/</code>) used to reach nobody else. A
 running session never sees another task's decisions, so a sibling task in the

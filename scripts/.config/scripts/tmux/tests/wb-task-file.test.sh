@@ -138,8 +138,7 @@ assert_eq "wb.sh dispatches 'task-file' to cmd_task_file" "1" "$dispatch"
 
 # --- 8. wb_task_files accepts only <repo>--<slug>.md stems ------------------
 # Loose Markdown in the store (AGENTS.md, CLAUDE.md, README.md, TEMPLATE.md, a
-# recovery note) must never be returned as a task file: `wb migrate --all`
-# and every walker would otherwise treat them as tasks.
+# recovery note) must never be returned as a task file: every walker would otherwise treat them as tasks.
 TF_STORE="$FIXTURE/tf-store"; mkdir -p "$TF_STORE/dossiers/proj--dir"
 for n in proj--real.md be--monorepo--feat-x.md a--b.md AGENTS.md CLAUDE.md README.md TEMPLATE.md RECOVERY-NOTES-2026-07-10.md notes.md --lead.md proj--.md; do
   printf -- '---\nstatus: x\n---\n' > "$TF_STORE/$n"
