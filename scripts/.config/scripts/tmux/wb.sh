@@ -4240,7 +4240,7 @@ cmd_pause() {
 # ephemeral (/tmp/compound-engineering/...) and it may touch zero repo files
 # in mode:agent, so unlike /ce-work there is no git-observable signal for
 # "a review happened" — this field is the only buildable detection without
-# modifying the external skill. wb-store's road reads the field.
+# modifying the external skill. wb-store's show output prints the field.
 # Deliberate limitation, same trade-off wb pause already accepts for
 # `status: paused`: this requires a habit (running `wb reviewed` after a
 # review pass); no staleness invalidation either — a task that receives
