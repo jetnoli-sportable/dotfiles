@@ -133,7 +133,7 @@ assert_eq "outside tmux opens no editor" "" "$edited"
 # --- 7. the CLI dispatch arm exists ---------------------------------------
 # Guards the wiring, not the function: a task-file case must be present in
 # wb.sh's dispatch or the tmux bind silently falls through to the picker.
-dispatch="$(grep -cE '^\s+task-file\)\s+shift; cmd_task_file' "$WB")"
+dispatch="$(awk '/^  wb_verbs=\($/ {p=1} p{print} p && /^  \)$/ {exit}' "$WB" | grep -cE '(^| )task-file( |$)')"
 assert_eq "wb.sh dispatches 'task-file' to cmd_task_file" "1" "$dispatch"
 
 # --- 8. wb_task_files accepts only <repo>--<slug>.md stems ------------------

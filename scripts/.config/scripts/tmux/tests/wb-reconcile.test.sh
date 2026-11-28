@@ -24,6 +24,9 @@ assert() { # <desc> <expected-regex> <actual>
     fail=1
   fi
 }
+assert_eq() { # <desc> <expected> <actual>
+  if [ "$2" = "$3" ]; then echo "ok   - $1"; else echo "FAIL - $1 (expected '$2', got '$3')"; fail=1; fi
+}
 
 # --- fake `gh` — no live network call, ever -----------------------------
 cat > "$FIXTURE_BIN/gh" <<'EOF'

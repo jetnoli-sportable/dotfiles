@@ -77,6 +77,9 @@ mapfile -t verbs < <(awk '
   /^if / && index($0, "BASH_SOURCE[0]") { at_guard = 1; next }
   at_guard && /^  case / { in_dispatch = 1; next }
   in_dispatch && /^  esac$/ { exit }
+  /^  wb_verbs=\($/ { in_table = 1; next }
+  in_table && /^  \)$/ { in_table = 0; next }
+  in_table { gsub(/"/, ""); for (i = 1; i <= NF; i++) print $i; next }
   in_dispatch && /^    [a-z]/ {
     split($0, p, ")"); v = p[1]; gsub(/^ +/, "", v)
     split(v, alts, "|")

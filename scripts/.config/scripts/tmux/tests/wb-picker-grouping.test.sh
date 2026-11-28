@@ -981,9 +981,9 @@ assert_eq "U5 picker: the list renders (writing the snapshot) before fzf starts"
 assert "U5 picker: the ctrl-x bind is unchanged" 'ctrl-x:become\(\\"\$SELF\\" _ctrl-x \{10\} \{8\} \{7\} \{9\}\)' "$picker_block"
 status_body="$(awk '/^wb_status_line\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
 assert_lacks "U5 wb_status_line no longer calls wb_pending_counts" "wb_pending_counts" "$status_body"
-dispatch="$(awk '/^  case / {p=1} p{print}' "$WB")"
-assert "U5 dispatch: _initial-pos verb" '^    _initial-pos\) +shift; _initial_pos "\$@"' "$dispatch"
-assert "U5 dispatch: _next-needs verb" '^    _next-needs\) +shift; _next_needs "\$@"' "$dispatch"
+dispatch="$(awk '/^  picker_verbs=\($/ {p=1} p{print} p && /^  \)$/ {exit}' "$WB")"
+assert "U5 dispatch: _initial-pos verb" '(^| )_initial-pos( |$)' "$dispatch"
+assert "U5 dispatch: _next-needs verb" '(^| )_next-needs( |$)' "$dispatch"
 rm -rf "$U5_DIR"
 
 # ============================================================================
@@ -1101,9 +1101,9 @@ assert_eq "U6 label: git status" " git status " "$(_preview_label "" "$PV_DIR/re
 assert_eq "U6 label: nothing"    " wb "         "$(_preview_label "" "$PV_DIR/missing")"
 
 # --- dispatch: both verbs are wired (and hidden from wb help as internal) ----
-dispatch="$(awk '/^  case / {p=1} p{print}' "$WB")"
-assert "U6 dispatch: _preview verb" '^    _preview\) +shift; _preview "\$@"' "$dispatch"
-assert "U6 dispatch: _preview-label verb" '^    _preview-label\) +shift; _preview_label "\$@"' "$dispatch"
+dispatch="$(awk '/^  picker_verbs=\($/ {p=1} p{print} p && /^  \)$/ {exit}' "$WB")"
+assert "U6 dispatch: _preview verb" '(^| )_preview( |$)' "$dispatch"
+assert "U6 dispatch: _preview-label verb" '(^| )_preview-label( |$)' "$dispatch"
 rm -rf "$PV_DIR"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"

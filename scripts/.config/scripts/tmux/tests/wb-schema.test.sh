@@ -53,7 +53,7 @@ mk_task 'dotfiles--e.md' done    dotfiles 'Done Task'
 # (correctly) fail.
 done_block="$(awk '/^cmd_done\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
 assert "cmd_done stamps status done" 'status "?done"?' "$done_block"
-assert "cmd_done stamps closed: date" 'wb_set_frontmatter "\$task_file" closed "\$\(date \+%F\)"' "$done_block"
+assert "cmd_done stamps closed: date" 'closed "\$\(date \+%F\)"' "$done_block"
 assert "cmd_done's kill-session is gated behind the close flag" \
   '\[ "\$close" -eq 1 \] && tmux kill-session' "$done_block"
 
@@ -162,10 +162,10 @@ assert "wb_set_frontmatter: claude_sessions: lands inside the frontmatter block"
 mk_task 'proj--noclaudesessions.md' doing proj 'No Sessions'
 fields_without="$(wb_read_task "$FIXTURE/proj--noclaudesessions.md" | awk -F'\t' '{print NF}')"
 fields_with="$(wb_read_task "$FIXTURE/proj--oldschema.md" | awk -F'\t' '{print NF}')"
-assert "wb_read_task: 8 fields without claude_sessions:" '^8$' "$fields_without"
-assert "wb_read_task: 8 fields with claude_sessions: set" '^8$' "$fields_with"
+assert "wb_read_task: 10 fields without claude_sessions:" '^10$' "$fields_without"
+assert "wb_read_task: 10 fields with claude_sessions: set" '^10$' "$fields_with"
 assert "wb_read_task: 8th field carries claude_sessions:" \
-  'abc@2026-09-01T00:00:00Z$' "$(wb_read_task "$FIXTURE/proj--oldschema.md")"
+  '^abc@2026-09-01T00:00:00Z$' "$(wb_read_task "$FIXTURE/proj--oldschema.md" | cut -f8)"
 
 # wb_transcript_dir encodes the absolute worktree path under CLAUDE_PROJECTS_DIR,
 # collapsing "/." to "--" (Claude Code's own encoding — verified against this

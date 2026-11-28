@@ -183,10 +183,10 @@ assert_not "wb now: a failed rewrite does not say replaced" 'replaced' "$out"
 mk_layout_task proj--failsup
 printf '### 2026-11-01 10:00 — Old call\nbody\n' | cmd_append proj--failsup Decisions - >/dev/null 2>&1
 OLDID="$(ls "$TASKS_DIR/dossiers/proj--failsup/decisions" | head -1)"; OLDID="${OLDID%.md}"
-wb_set_frontmatter_field_real="$(declare -f wb_set_frontmatter_field)"
-wb_set_frontmatter_field() { return 1; }
+wb_fm_write_real="$(declare -f wb_fm_write)"
+wb_fm_write() { return 1; }
 out="$( (printf 'New call\n' | cmd_decide_supersede proj--failsup "$OLDID" -) 2>&1 )"; rc=$?
-eval "$wb_set_frontmatter_field_real"
+eval "$wb_fm_write_real"
 assert_eq "decide-supersede: a failed flip of the old decision exits non-zero" 1 "$rc"
 assert "decide-supersede: the failure is reported" 'could not mark' "$out"
 

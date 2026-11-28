@@ -263,55 +263,128 @@ wb_get_frontmatter() {
   wb_get_frontmatter_text "$2" < "$1"
 }
 
-# wb_set_frontmatter <file> <key> <value> — overwrite a frontmatter value in
-# place, or insert it just before the closing `---` when the key has no
-# existing line (e.g. a task file that predates this key being added to the
-# schema).
-wb_set_frontmatter() {
-  local file="$1" key="$2" value="$3"
-  awk -v key="$key" -v val="$value" '
-    BEGIN { infm = 0; done = 0 }
-    /^---$/ {
-      infm++
-      if (infm == 2 && !done) { print key ": " val; done = 1 }
-      print; next
-    }
-    infm == 1 && !done && $0 ~ "^" key ":" { print key ": " val; done = 1; next }
-    { print }
-  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+# _wb_awk_inplace <file> <awk args>... — run awk over <file> and replace it
+# with the output; on failure the temp file is removed and <file> is left
+# as it was.
+_wb_awk_inplace() {
+  local file="$1"; shift
+  if awk "$@" "$file" > "$file.tmp.$$"; then
+    mv "$file.tmp.$$" "$file"
+  else
+    rm -f "$file.tmp.$$"; return 1
+  fi
 }
 
-# wb_set_frontmatter_field <file> <key> <value> [<after_key>] — the
-# comment-preserving sibling of wb_set_frontmatter above: overwrite <key>'s
-# frontmatter line in place, keeping any trailing inline "# ..." comment
-# that line already carries (TEMPLATE.md/README.md's own `key: val  # note`
-# shape). When <key> has no existing line ANYWHERE in the frontmatter
-# block, insert it right after <after_key>'s line when given and present
-# in the file, otherwise just before the closing `---` — same default-
-# insertion point as wb_set_frontmatter. Two-pass: first a whole-block scan
-# decides whether <key> already exists (so an insertion point that happens
-# to come BEFORE the key's real line — e.g. `after_key=size` on
-# TEMPLATE.md, where `priority:` ships its own empty line further down —
-# never fires and produces a duplicate); if it exists, the FIRST occurrence
-# is replaced in place (comment preserved) and every further occurrence in
-# the block is dropped (self-healing dedupe for files a prior buggy run
-# already duplicated). Extracted from cmd_status's original inline awk (the
-# ONE comment-preserving frontmatter rewrite); shared by cmd_status
-# (status:, never needs after_key — the key always exists) and cmd_set
-# (priority:/value:/size:/parent:/depends_on:/jira:/pr:/tags:/path:, some of
-# which land after size: or jira: on a pre-schema task file that predates them).
+# wb_fm_write <file> [--after <after_key>] <key> <value> [<key> <value>]... —
+# the one frontmatter writer: every pair in one awk pass and one rewrite.
+# A key's first line in the frontmatter block is replaced in place, keeping
+# any trailing inline "# ..." comment; further lines for the same key are
+# dropped (self-healing dedupe). A key with no line is inserted after
+# <after_key>'s line when given and present, else just before the closing
+# `---`, in argument order. A key written as `?key` is fill-only: it is
+# written when the key is missing or its value is blank, and left alone
+# otherwise. Values go through ENVIRON, never `awk -v`, which would decode
+# a literal `\n` into a real newline and inject a second frontmatter line.
+wb_fm_write() {
+  local file="$1"; shift
+  local after=""
+  if [ "${1:-}" = --after ]; then after="$2"; shift 2; fi
+  local -a envs=() ; local n=0
+  while [ $# -ge 2 ]; do
+    n=$((n + 1)); envs+=("WB_FM_K$n=$1" "WB_FM_V$n=$2"); shift 2
+  done
+  [ "$n" -gt 0 ] || return 0
+  (
+  export "${envs[@]}" WB_FM_N="$n" WB_FM_AFTER="$after"
+  # shellcheck disable=SC2016  # an awk program, not a shell expansion
+  _wb_awk_inplace "$file" '
+    BEGIN {
+      n = ENVIRON["WB_FM_N"] + 0; after = ENVIRON["WB_FM_AFTER"]
+      for (j = 1; j <= n; j++) {
+        k = ENVIRON["WB_FM_K" j]; fill[j] = (substr(k, 1, 1) == "?")
+        K[j] = fill[j] ? substr(k, 2) : k; V[j] = ENVIRON["WB_FM_V" j]
+      }
+    }
+    {
+      lines[++nl] = $0
+      if ($0 == "---") { infm++; if (infm == 1) fs = nl; else if (infm == 2 && fe == 0) fe = nl }
+    }
+    function keyof(line,   j) {
+      for (j = 1; j <= n; j++) if (index(line, K[j] ":") == 1) return j
+      return 0
+    }
+    function emit_missing(   j) {
+      for (j = 1; j <= n; j++) if (!first[j] && !done[j]) { print K[j] ": " V[j]; done[j] = 1 }
+    }
+    END {
+      for (i = fs + 1; i < fe; i++) { j = keyof(lines[i]); if (j && !first[j]) first[j] = i }
+      for (j = 1; j <= n; j++) {
+        keep[j] = 0
+        if (fill[j] && first[j]) {
+          v = substr(lines[first[j]], length(K[j]) + 2); sub(/^[ \t]*/, "", v)
+          keep[j] = (v != "")
+        }
+      }
+      for (i = 1; i <= nl; i++) {
+        line = lines[i]
+        if (i > fs && i < fe && (j = keyof(line))) {
+          if (keep[j]) { print line; continue }
+          if (i == first[j]) {
+            c = ""; if (match(line, /[ \t]+#.*$/)) c = substr(line, RSTART)
+            print K[j] ": " V[j] c
+          }
+          continue
+        }
+        if (i == fe) emit_missing()
+        print line
+        if (after != "" && i > fs && i < fe && index(line, after ":") == 1) emit_missing()
+      }
+    }
+  '
+  )
+}
+
+# wb_set_frontmatter <file> <key> <value> [<after_key>] — set one field; see
+# wb_fm_write.
+wb_set_frontmatter() {
+  wb_fm_write "$1" ${4:+--after "$4"} "$2" "$3"
+}
+
 # _wb_refuse_if_live_session <task-file> <verb> — exit 1 when any live tmux
 # session's @task points at <task-file>. Store-only verbs (wb status, wb set)
 # share this so the refusal text and scan never drift between them.
 _wb_refuse_if_live_session() {
-  local file="$1" verb="$2" session cur
-  while IFS= read -r session; do
-    [ -n "$session" ] || continue
-    cur="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
-    [ "$cur" = "$file" ] || continue
-    echo "$verb: $(basename -- "$file") has a live session $session — use wb pause/wb down from that session" >&2
-    exit 1
-  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+  local file="$1" verb="$2" session=""
+  read -r session < <(wb_sessions_with_task "$file") || true
+  [ -z "$session" ] || _wb_die "$verb: $(basename -- "$file") has a live session $session — use wb pause/wb down from that session"
+}
+
+# wb_session_table — one line per live tmux session, from ONE tmux call:
+# "<last_attached>|<session>|<@task>|<@wb_repo>|<@wb_slug>". `|`, not a tab:
+# tmux prints a control character in a format as "_". Read it with
+# `IFS='|' read -r`, which keeps empty fields (unlike a tab IFS).
+wb_session_table() {
+  tmux list-sessions -F '#{session_last_attached}|#{session_name}|#{@task}|#{@wb_repo}|#{@wb_slug}' 2>/dev/null || true
+}
+
+# wb_sessions_with_task <task-file> — every live session whose @task is
+# <task-file>, one per line.
+wb_sessions_with_task() {
+  local _a session task _rest
+  while IFS='|' read -r _a session task _rest; do
+    [ "$task" = "$1" ] && printf '%s\n' "$session"
+  done < <(wb_session_table)
+  return 0
+}
+
+# _wb_session_opts <session> — "<@task>|<@wb_repo>|<@wb_slug>" of one
+# session (the shape wb_session_table's last three fields have).
+_wb_session_opts() {
+  local o v=()
+  for o in @task @wb_repo @wb_slug; do
+    v+=("$(tmux show -t "=$1:" -v "$o" 2>/dev/null || true)")
+  done
+  printf '%s|%s|%s\n' "${v[@]}"
 }
 
 # _wb_frontmatter_value_ok <verb> <field> <value> — fail loud on a value that
@@ -334,125 +407,51 @@ _wb_frontmatter_value_ok() {
   return 0
 }
 
-wb_set_frontmatter_field() {
-  local file="$1" key="$2" value="$3" after_key="${4:-}"
-  # `val` goes through ENVIRON, never `awk -v` — awk -v applies C
-  # escape-sequence processing to the assigned string, so a free-text
-  # value containing the literal two-character sequence `\n` is silently
-  # decoded into a REAL newline byte at assignment time. That happens
-  # BEFORE `_wb_frontmatter_value_ok`'s embedded-real-newline check ever
-  # runs (that check inspects the raw argv, which still only has `\`+`n`,
-  # two ordinary characters) — so a value like `urgent\nstatus: pwned`
-  # sails through validation and then injects a second frontmatter line.
-  # Same reasoning as `_wb_append_under_heading`'s own ENVIRON use.
-  # `key`/`after` stay on `-v`: both are always one of a small fixed set
-  # of internal field names (never caller-composed free text), so they
-  # carry none of this risk.
-  WB_SET_FM_VALUE="$value" awk -v key="$key" -v after="$after_key" '
-    BEGIN { val = ENVIRON["WB_SET_FM_VALUE"] }
-    {
-      n++
-      lines[n] = $0
-      if ($0 ~ /^---$/) {
-        infm++
-        if (infm == 1) fmstart = n
-        else if (infm == 2 && fmend == 0) fmend = n
-      }
-    }
-    END {
-      exists = 0; firstidx = 0
-      for (i = fmstart + 1; i < fmend; i++) {
-        if (lines[i] ~ ("^" key ":")) {
-          exists++
-          if (firstidx == 0) firstidx = i
-        }
-      }
-      inserted = 0
-      for (i = 1; i <= n; i++) {
-        line = lines[i]
-        if (i > fmstart && i < fmend && line ~ ("^" key ":")) {
-          if (i == firstidx) {
-            comment = ""
-            if (match(line, /[ \t]+#.*$/)) { comment = substr(line, RSTART) }
-            print key ": " val comment
-          }
-          continue   # drop every further duplicate occurrence
-        }
-        if (!exists && !inserted && i > fmstart && i < fmend && after != "" && line ~ ("^" after ":")) {
-          print line
-          print key ": " val
-          inserted = 1
-          continue
-        }
-        if (!exists && !inserted && i == fmend) {
-          print key ": " val
-          inserted = 1
-        }
-        print line
-      }
-    }
-  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
-}
 
 # wb_read_task <file> — print "status\trepo\tworktree\tbranch\tpath\t
-# depends_on\treviewed\tclaude_sessions" in one pass (used by the picker's
-# row collection, which reads every task file on each refresh, and by the
-# board pre-pass — board-display-v2's KTD-1 extends this rather than adding
-# three more per-field wb_get_frontmatter reads per task). claude_sessions
-# (U2) is appended as an 8th field, never inserted mid-row — every existing
-# caller destructures fields 1-7 by position and would silently shift if a
-# new field landed anywhere else.
+# depends_on\treviewed\tclaude_sessions\tworktrees\tparent" in one pass (the
+# picker reads it per live session). New fields are appended, never
+# inserted mid-row: callers destructure by position.
 wb_read_task() {
-  awk '
-    # clip() strips a trailing inline comment ("value  # note") plus edge
-    # whitespace — TEMPLATE.md itself ships "status: doing  # planned|..."
-    # so any seeded task carries one, and an uncomment-stripped status
-    # breaks every consumer that compares it (board rank, picker column).
-    function clip(s) { sub(/[ \t]+#.*$/, "", s); sub(/[ \t]+$/, "", s); return s }
-    BEGIN { infm = 0; status = ""; repo = ""; worktree = ""; branch = ""; path = ""; deps = ""; reviewed = ""; sessions = "" }
-    /^---$/ { infm++; if (infm == 2) exit; next }
-    infm == 1 && /^status:/          { s = $0; sub(/^status:[ \t]*/,          "", s); status   = clip(s) }
-    infm == 1 && /^repo:/            { s = $0; sub(/^repo:[ \t]*/,            "", s); repo     = clip(s) }
-    infm == 1 && /^worktree:/        { s = $0; sub(/^worktree:[ \t]*/,        "", s); worktree = clip(s) }
-    infm == 1 && /^branch:/          { s = $0; sub(/^branch:[ \t]*/,          "", s); branch   = clip(s) }
-    infm == 1 && /^path:/            { s = $0; sub(/^path:[ \t]*/,            "", s); path     = clip(s) }
-    infm == 1 && /^depends_on:/      { s = $0; sub(/^depends_on:[ \t]*/,      "", s); deps     = clip(s) }
-    infm == 1 && /^reviewed:/        { s = $0; sub(/^reviewed:[ \t]*/,        "", s); reviewed = clip(s) }
-    infm == 1 && /^claude_sessions:/ { s = $0; sub(/^claude_sessions:[ \t]*/, "", s); sessions = clip(s) }
-    END { printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", status, repo, worktree, branch, path, deps, reviewed, sessions }
-  ' "$1"
+  wb_read_tasks_batch "$1" | cut -f2-
 }
 
-# wb_read_tasks_batch <file>... — same fields as wb_read_task, for many
-# files in ONE awk process instead of one process per file (each row is
-# prefixed with its own source path, since a multi-file run has no other
-# way to tell rows apart). Exists for scan-the-whole-store callers like
-# collect_dormant_rows, where forking a fresh awk per task file — cheap in
-# isolation — dominates real wall-clock once the store has hundreds of them.
+# wb_read_tasks_batch <file>... — the same fields for many files in ONE awk
+# process, each row prefixed with its source path. Exists for whole-store
+# callers (dormant rows, reconcile), where an awk fork per task file
+# dominates wall-clock once the store has hundreds of them. Frontmatter
+# opens only on line 1, like wb_get_frontmatter. clip() strips a trailing
+# inline comment ("value  # note") plus edge whitespace.
 wb_read_tasks_batch() {
   awk '
     function clip(s) { sub(/[ \t]+#.*$/, "", s); sub(/[ \t]+$/, "", s); return s }
-    function emit() {
-      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", \
-        file, status, repo, worktree, branch, path, deps, reviewed, sessions
+    function emit(   i, row) {
+      row = file
+      for (i = 1; i <= n; i++) row = row "\t" v[keys[i]]
+      print row
     }
+    BEGIN { n = split("status repo worktree branch path depends_on reviewed claude_sessions worktrees parent", keys, " ") }
     FNR == 1 {
       if (NR > 1) emit()
-      file = FILENAME; infm = 0; done = 0
-      status = ""; repo = ""; worktree = ""; branch = ""; path = ""; deps = ""; reviewed = ""; sessions = ""
+      file = FILENAME; infm = 0; done = ($0 != "---"); split("", v)
     }
     done { next }
     /^---$/ { infm++; if (infm == 2) done = 1; next }
-    infm == 1 && /^status:/          { s = $0; sub(/^status:[ \t]*/,          "", s); status   = clip(s) }
-    infm == 1 && /^repo:/            { s = $0; sub(/^repo:[ \t]*/,            "", s); repo     = clip(s) }
-    infm == 1 && /^worktree:/        { s = $0; sub(/^worktree:[ \t]*/,        "", s); worktree = clip(s) }
-    infm == 1 && /^branch:/          { s = $0; sub(/^branch:[ \t]*/,          "", s); branch   = clip(s) }
-    infm == 1 && /^path:/            { s = $0; sub(/^path:[ \t]*/,            "", s); path     = clip(s) }
-    infm == 1 && /^depends_on:/      { s = $0; sub(/^depends_on:[ \t]*/,      "", s); deps     = clip(s) }
-    infm == 1 && /^reviewed:/        { s = $0; sub(/^reviewed:[ \t]*/,        "", s); reviewed = clip(s) }
-    infm == 1 && /^claude_sessions:/ { s = $0; sub(/^claude_sessions:[ \t]*/, "", s); sessions = clip(s) }
+    infm == 1 && match($0, /^[a-z_]+:/) {
+      k = substr($0, 1, RLENGTH - 1); val = substr($0, RLENGTH + 1)
+      sub(/^[ \t]*/, "", val); v[k] = clip(val)
+    }
     END { emit() }
   ' "$@"
+}
+
+# _wb_store_rows — wb_read_tasks_batch over every task file (nothing when
+# the store is empty; awk with no file operands would read stdin).
+_wb_store_rows() {
+  local -a files
+  mapfile -t files < <(wb_task_files)
+  [ "${#files[@]}" -gt 0 ] || return 0
+  wb_read_tasks_batch "${files[@]}"
 }
 
 # wb_task_title <file> — the first `# ` heading, or empty if none.
@@ -737,26 +736,38 @@ wb_family_all_done() {
   [ "$found" = 1 ]
 }
 
+# _wb_ancestors <task_file> — <task_file>'s stem, then each parent: up the
+# chain, nearest first, one per line. Stops at a blank parent, a parent
+# already printed (a self-parent or a hand-edited cycle), a missing file, or
+# 20 levels. Prints nothing when <task_file> does not exist.
+_wb_ancestors() {
+  local file="$1" stem depth=0
+  local -A seen=()
+  stem="${file##*/}"; stem="${stem%.md}"
+  while [ "$depth" -lt 20 ] && [ -f "$file" ] && [ -z "${seen[$stem]:-}" ]; do
+    printf '%s\n' "$stem"
+    seen[$stem]=1; depth=$((depth + 1))
+    stem="$(wb_get_frontmatter "$file" parent)"
+    [ -n "$stem" ] || break
+    file="$TASKS_DIR/$stem.md"
+  done
+}
+
 # wb_family_close_target <parent_stem> — the ancestor cmd_done's nudge names,
 # or nothing. Climbs from <parent_stem> past ancestors already marked done
 # (closing a grandchild last leaves its done parent's own parent as the one
 # to close) and stops at the first that isn't: that one is printed only when
 # wb_family_all_done holds for it. An ancestor above it can't qualify while it
-# is open. Guarded like _wb_family_stems' climb: seen-set, depth cap 20, stop
-# at a missing parent file.
+# is open. The climb is _wb_ancestors.
 wb_family_close_target() {
-  local stem="$1" depth=0
-  local -A seen=()
-  while [ -n "$stem" ] && [ "$depth" -lt 20 ] && [ -z "${seen[$stem]:-}" ] \
-      && [ -f "$TASKS_DIR/$stem.md" ]; do
+  local stem
+  [ -n "$1" ] || return 0
+  while IFS= read -r stem; do
     if [ "$(wb_get_frontmatter "$TASKS_DIR/$stem.md" status)" != "done" ]; then
       if wb_family_all_done "$stem"; then printf '%s\n' "$stem"; fi
       return 0
     fi
-    seen[$stem]=1
-    depth=$((depth + 1))
-    stem="$(wb_get_frontmatter "$TASKS_DIR/$stem.md" parent)"
-  done
+  done < <(_wb_ancestors "$TASKS_DIR/$1.md")
   return 0
 }
 
@@ -780,8 +791,12 @@ wb_family_close_target() {
 # non-cmd_new session) stays byte-for-byte unchanged (characterized in
 # wb-breakdown.test.sh's coherence section before this landed).
 wb_session_task_file() {
-  local session="$1" task_ref
-  task_ref="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
+  local session="$1" task_ref="" repo="" slug=""
+  if [ $# -ge 4 ]; then
+    task_ref="$2" repo="$3" slug="$4"
+  else
+    IFS='|' read -r task_ref repo slug < <(_wb_session_opts "$session") || true
+  fi
   if [ -n "$task_ref" ]; then
     if [ -f "$task_ref" ]; then
       printf '%s\n' "$task_ref"
@@ -789,9 +804,6 @@ wb_session_task_file() {
     fi
     echo "wb: @task ($task_ref) no longer exists for $session — falling back to repo/slug derivation" >&2
   fi
-  local repo slug
-  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
-  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
   [ -n "$repo" ] && [ -n "$slug" ] || return 1
   wb_task_file "$repo" "$(wb_sanitize "$slug")"
 }
@@ -923,6 +935,20 @@ _wb_lock_trap_append_if_top_level() {
   [ "${_WB_LOCK_TRAP_INSTALLED:-0}" -eq 1 ] && return 0
   wb_lock_trap_append "$1"
   _WB_LOCK_TRAP_INSTALLED=1
+}
+
+# _wb_lock <task-file> — take the task's lock for a top-level verb, with the
+# EXIT-trap release installed first; exits with the lock's own status when
+# it cannot be taken.
+_wb_lock() {
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$1" || exit $?
+}
+
+# _wb_die <message>... — print the message on stderr and exit 1.
+_wb_die() {
+  printf '%s\n' "$*" >&2
+  exit 1
 }
 
 # ---------------------------------------------------------------------------
@@ -1059,41 +1085,20 @@ wb_ensure_repo_ignore() {
 # from a hook), which reaches sub-agents because they load a worktree's cwd
 # instruction files same as the top-level session does.
 #
-# Walks the parent: chain starting at <task_file>'s own stem — nearest
-# first, so a child's own settled facts are listed before an umbrella's —
-# self-parent (wb_task_own_parent) and cycles (seen-set) both stop the walk
-# rather than looping; a depth cap is a backstop against either guard
-# somehow missing a case. Prints one path per line for every
+# Walks the parent: chain with _wb_ancestors, nearest first, so a child's
+# own settled facts are listed before an umbrella's. Prints one path per
+# line for every
 # $TASKS_DIR/dossiers/<stem>/concepts.md (KTD24) that exists anywhere in the
 # chain;
 # prints nothing (exit 0) when none exist, including when <task_file> itself
 # doesn't exist.
 _wb_concepts_paths() {
-  local task_file="$1"
-  [ -f "$task_file" ] || return 0
-  local -A seen=()
-  local depth=0 max_depth=20
-  local current_file="$task_file"
-  local current_stem; current_stem="$(basename "$task_file" .md)"
-
-  while [ -n "$current_stem" ] && [ "$depth" -lt "$max_depth" ]; do
-    [ -z "${seen[$current_stem]:-}" ] || break
-    seen[$current_stem]=1
-    depth=$((depth + 1))
-
+  local stem dossier
+  while IFS= read -r stem; do
     # KTD24: the family file is the dossier's concepts.md.
-    local dossier="$TASKS_DIR/dossiers/$current_stem/concepts.md"
-    [ -f "$dossier" ] && printf '%s\n' "$dossier"
-
-    local parent_ref; parent_ref="$(wb_get_frontmatter "$current_file" parent)"
-    [ -n "$parent_ref" ] || break
-    wb_task_own_parent "$parent_ref" "$current_stem" || break
-
-    local parent_file="$TASKS_DIR/$parent_ref.md"
-    [ -f "$parent_file" ] || break
-    current_file="$parent_file"
-    current_stem="$parent_ref"
-  done
+    dossier="$TASKS_DIR/dossiers/$stem/concepts.md"
+    if [ -f "$dossier" ]; then printf '%s\n' "$dossier"; fi
+  done < <(_wb_ancestors "$1")
   return 0
 }
 
@@ -1176,21 +1181,6 @@ _wb_seed_concepts_file() {
     || echo "wb new: warning: could not register .git/info/exclude ignore rule for CLAUDE.local.md (continuing)" >&2
 }
 
-# _wb_fill_frontmatter <file> <key> <value> — "explicit wins, else
-# blank-fill": a non-empty <value> is written unconditionally; an empty one
-# only ensures the key LINE exists (inserted blank when absent), never
-# clobbering a value already in the file. wb_seed_task's optional
-# board-metadata fields (path, depends_on, size) all share this shape so a
-# flag-less re-run leaves an earlier explicit value alone.
-_wb_fill_frontmatter() {
-  local file="$1" key="$2" value="$3"
-  if [ -n "$value" ]; then
-    wb_set_frontmatter "$file" "$key" "$value"
-  else
-    [ -n "$(wb_get_frontmatter "$file" "$key")" ] || wb_set_frontmatter "$file" "$key" ""
-  fi
-}
-
 # wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] [<file_override>]
 # [<depends_on_csv>] — find-or-create the task file for a
 # repo+slug pair, filling blank frontmatter fields and bumping
@@ -1216,6 +1206,7 @@ wb_seed_task() {
     file="$(wb_task_file "$repo" "$disp_slug")"
   fi
 
+  local -a fm=()
   if [ ! -f "$file" ]; then
     mkdir -p "$TASKS_DIR"
     local title="${slug//-/ }"
@@ -1237,58 +1228,50 @@ wb_seed_task() {
       { print }
     ' "$TASKS_DIR/TEMPLATE.md" > "$file"
   else
-    [ -n "$(wb_get_frontmatter "$file" repo)" ] || wb_set_frontmatter "$file" repo "$repo"
+    local -a cur; wb_tsv_split "$(wb_read_task "$file")" cur
+    fm+=("?repo" "$repo")
 
     # Reattach guard (KTD7): don't backfill a blank branch:/worktree: pair
     # when another task file already claims that exact pair — a muscle-
     # memory `wb new <old-slug>` after a wb-breakdown migration would
     # otherwise silently refill the parent's deliberately-blanked fields,
     # leaving two files claiming one worktree.
-    local claiming_file="" f
-    if [ -z "$(wb_get_frontmatter "$file" branch)" ] || [ -z "$(wb_get_frontmatter "$file" worktree)" ]; then
-      for f in $(wb_task_files); do
-        [ "$f" != "$file" ] || continue
-        [ "$(wb_get_frontmatter "$f" branch)" = "$slug" ] || continue
-        [ "$(wb_get_frontmatter "$f" worktree)" = "$worktree_rel" ] || continue
-        claiming_file="$f"
+    local claiming_file="" line
+    local -a r
+    if [ -z "${cur[3]:-}" ] || [ -z "${cur[2]:-}" ]; then
+      while IFS= read -r line; do
+        wb_tsv_split "$line" r
+        [ "${r[0]}" != "$file" ] && [ "${r[4]:-}" = "$slug" ] && [ "${r[3]:-}" = "$worktree_rel" ] || continue
+        claiming_file="${r[0]}"
         break
-      done
+      done < <(_wb_store_rows)
     fi
     if [ -n "$claiming_file" ]; then
       echo "wb_seed_task: not backfilling branch:/worktree: on $file — $claiming_file already claims branch=$slug worktree=$worktree_rel" >&2
     else
-      [ -n "$(wb_get_frontmatter "$file" branch)" ]    || wb_set_frontmatter "$file" branch "$slug"
-      [ -n "$(wb_get_frontmatter "$file" worktree)" ]  || wb_set_frontmatter "$file" worktree "$worktree_rel"
+      fm+=("?branch" "$slug" "?worktree" "$worktree_rel")
     fi
 
     # R5/U4: resuming a shelved task flips it back to doing, exactly like
-    # the pre-existing planned->doing flip below — a `paused` task was
-    # deliberately shelved, not abandoned, so `wb new`/`wb resume` bringing
-    # it back is itself the "un-shelve" action.
-    case "$(wb_get_frontmatter "$file" status)" in
-      planned|paused) wb_set_frontmatter "$file" status doing ;;
+    # the planned->doing flip — a `paused` task was deliberately shelved,
+    # not abandoned, so `wb new`/`wb resume` bringing it back is itself the
+    # "un-shelve" action.
+    case "${cur[0]:-}" in
+      planned|paused) fm+=(status doing) ;;
     esac
-    # reviewed: has no inferred value (unlike repo/branch/worktree above) —
-    # it starts blank and is only ever stamped by cmd_reviewed. This just
-    # backfills the KEY onto task files that predate it in the schema, same
-    # as the other blank-field fills above, never overwriting a value
-    # that's already set.
-    [ -n "$(wb_get_frontmatter "$file" reviewed)" ]  || wb_set_frontmatter "$file" reviewed ""
+    # reviewed: starts blank and is only ever stamped by cmd_reviewed; this
+    # backfills the KEY onto task files that predate it in the schema.
+    fm+=("?reviewed" "")
   fi
-  [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
+  [ -z "$parent" ] || fm+=(parent "$parent")
 
-  # path:/depends_on:/size: — every seeded task file must carry all three
-  # keys, per the schema's blank-fill convention (mirrors reviewed: above);
-  # depends_on: additionally takes an explicit value the same way parent:
-  # does. path:/size: are only ever set later, through `wb set`.
-  # wb_set_frontmatter itself inserts the key when TEMPLATE.md (or a
-  # pre-existing file) has no line for it yet, so this is correct whether
-  # or not the template has caught up to carrying the blank lines. A blank
-  # size: reads as M at load, so blank-filling it never manufactures a
-  # value.
-  _wb_fill_frontmatter "$file" path ""
-  _wb_fill_frontmatter "$file" depends_on "$depends_on"
-  _wb_fill_frontmatter "$file" size ""
+  # path:/depends_on:/size: — every seeded task file carries all three keys,
+  # blank-filled; depends_on: also takes an explicit value the same way
+  # parent: does. A blank size: reads as M at load.
+  fm+=("?path" "")
+  if [ -n "$depends_on" ]; then fm+=(depends_on "$depends_on"); else fm+=("?depends_on" ""); fi
+  fm+=("?size" "")
+  wb_fm_write "$file" "${fm[@]}"
 
   echo "$file"
 }
@@ -1358,10 +1341,7 @@ wb_seed_task_planned() {
     ' "$TASKS_DIR/TEMPLATE.md" > "$file"
     rm -f "$titlefile"
   else
-    [ -n "$(wb_get_frontmatter "$file" repo)" ]     || wb_set_frontmatter "$file" repo "$repo"
-    [ -n "$(wb_get_frontmatter "$file" branch)" ]   || wb_set_frontmatter "$file" branch "$slug"
-    [ -n "$(wb_get_frontmatter "$file" status)" ]   || wb_set_frontmatter "$file" status "$status_override"
-    [ -n "$(wb_get_frontmatter "$file" reviewed)" ] || wb_set_frontmatter "$file" reviewed ""
+    wb_fm_write "$file" "?repo" "$repo" "?branch" "$slug" "?status" "$status_override" "?reviewed" ""
   fi
   [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
   echo "$file"
@@ -1381,13 +1361,14 @@ _wb_insert_plan_body() {
   [[ $body == *[![:space:]]* ]] || return 0
   local bodyfile; bodyfile="$(mktemp)"
   printf '%s\n' "$body" > "$bodyfile"
-  awk -v bodyfile="$bodyfile" '
+  # shellcheck disable=SC2016  # an awk program, not a shell expansion
+  _wb_awk_inplace "$file" -v bodyfile="$bodyfile" '
     { print }
     $0 == "## Plan" {
       print ""
       while ((getline line < bodyfile) > 0) print line
     }
-  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  '
   rm -f "$bodyfile"
 }
 
@@ -1405,11 +1386,12 @@ _wb_new_seed() {
   local file="$1" body="${2:-}"
 
   wb_set_frontmatter "$file" layout dossier
-  awk '
+  # shellcheck disable=SC2016  # an awk program, not a shell expansion
+  _wb_awk_inplace "$file" '
     /^## (Decisions|Done|Follow-ups)[ \t]*$/ { skip = 1; next }
     /^## / { skip = 0 }
     !skip { print }
-  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  '
   local stem; stem="$(basename -- "$file" .md)"
   _wb_replace_block "$file" "Now" "(not started — read dossiers/$stem/brief.md for the opening ask; the first \`/wb-save\` or \`wb now\` replaces this)" 1
 
@@ -1507,8 +1489,7 @@ wb_seed_planned_child() {
   ' "$TASKS_DIR/TEMPLATE.md" > "$file"
   rm -f "$titlefile"
 
-  [ -z "$size" ]       || wb_set_frontmatter "$file" size "$size"
-  [ -z "$depends_on" ] || wb_set_frontmatter "$file" depends_on "$depends_on"
+  wb_fm_write "$file" ${size:+size "$size"} ${depends_on:+depends_on "$depends_on"}
 
   _wb_new_seed "$file" "$body"
   _wb_insert_plan_body "$file" "$body"
@@ -2050,7 +2031,7 @@ cmd_new() {
       # a heredoc meant for something else) is left untouched.
       --body)
         [ "${2-}" = "-" ] \
-          || { echo "wb new: --body only accepts '-' (read the body from stdin); use --body-file <path> for a file" >&2; exit 1; }
+          || _wb_die "wb new: --body only accepts '-' (read the body from stdin); use --body-file <path> for a file"
         body_stdin=1; shift 2 ;;
       --body-file)
         case "${2-}" in
@@ -2081,28 +2062,23 @@ cmd_new() {
   fi
 
   if [ -n "$jira_url" ] && [ "$planned_flag" != 1 ]; then
-    echo "wb new: --jira is only valid together with --planned (ticket-parent seeding never starts a worktree/session)" >&2
-    exit 1
+    _wb_die "wb new: --jira is only valid together with --planned (ticket-parent seeding never starts a worktree/session)"
   fi
 
   if [ -n "$title_override" ] && [ "$planned_flag" != 1 ]; then
-    echo "wb new: --title is only valid together with --planned (only a fresh, worktree-less seed has a title left to set)" >&2
-    exit 1
+    _wb_die "wb new: --title is only valid together with --planned (only a fresh, worktree-less seed has a title left to set)"
   fi
 
   if [ "$body_stdin" = 1 ] && [ -n "$body_file" ]; then
-    echo "wb new: --body - and --body-file are mutually exclusive" >&2
-    exit 1
+    _wb_die "wb new: --body - and --body-file are mutually exclusive"
   fi
 
   if { [ "$body_stdin" = 1 ] || [ -n "$body_file" ]; } && [ "$planned_flag" != 1 ]; then
-    echo "wb new: --body/--body-file are only valid together with --planned or --prospective (only a worktree-less seed has a ## Plan body to fill)" >&2
-    exit 1
+    _wb_die "wb new: --body/--body-file are only valid together with --planned or --prospective (only a worktree-less seed has a ## Plan body to fill)"
   fi
 
   if [ -n "$body_file" ] && { [ ! -f "$body_file" ] || [ ! -r "$body_file" ]; }; then
-    echo "wb new: --body-file '$body_file' is not a readable file" >&2
-    exit 1
+    _wb_die "wb new: --body-file '$body_file' is not a readable file"
   fi
 
   local repo slug
@@ -2112,14 +2088,13 @@ cmd_new() {
     slug="${args[0]}"
     local toplevel
     toplevel="$(git rev-parse --show-toplevel 2>/dev/null)" \
-      || { echo "wb new <slug>: not inside a repo — pass 'wb new <repo> <slug>'" >&2; exit 1; }
+      || _wb_die "wb new <slug>: not inside a repo — pass 'wb new <repo> <slug>'"
     repo="$(basename "$toplevel")"
   else
-    echo "$new_usage" >&2
-    exit 1
+    _wb_die "$new_usage"
   fi
 
-  [ -n "$slug" ] || { echo "wb new: <slug> must not be empty" >&2; exit 1; }
+  [ -n "$slug" ] || _wb_die "wb new: <slug> must not be empty"
 
   local disp_slug; disp_slug="$(wb_sanitize "$slug")"
   local own_stem="${repo}--${disp_slug}"
@@ -2130,7 +2105,7 @@ cmd_new() {
   if [ -n "$parent_ref" ]; then
     wb_resolve_parent_ref "$parent_ref" >/dev/null || exit 1
     wb_task_own_parent "$parent_ref" "$own_stem" \
-      || { echo "wb new: --parent cannot be the task's own reference" >&2; exit 1; }
+      || _wb_die "wb new: --parent cannot be the task's own reference"
   fi
 
   # --depends-on: each value must be a real, pre-existing task-file stem in
@@ -2149,15 +2124,15 @@ cmd_new() {
       *,*) echo "wb new: --depends-on '$dep' must not contain ','" >&2; exit 1 ;;
     esac
     [ "$dep" != "$own_stem" ] \
-      || { echo "wb new: --depends-on cannot be the task's own reference" >&2; exit 1; }
+      || _wb_die "wb new: --depends-on cannot be the task's own reference"
     [ -f "$TASKS_DIR/$dep.md" ] \
-      || { echo "wb new: --depends-on '$dep' has no matching task file in $TASKS_DIR" >&2; exit 1; }
+      || _wb_die "wb new: --depends-on '$dep' has no matching task file in $TASKS_DIR"
   done
   local depends_on_joined=""
   [ "${#depends_on_stems[@]}" -eq 0 ] || depends_on_joined="$(IFS=,; echo "${depends_on_stems[*]}")"
 
   local repo_dir="$CODE_DIR/$repo"
-  [ -d "$repo_dir/.git" ] || { echo "wb new: $repo_dir is not a git repo" >&2; exit 1; }
+  [ -d "$repo_dir/.git" ] || _wb_die "wb new: $repo_dir is not a git repo"
 
   if [ "$planned_flag" = 1 ]; then
     # W13's planned-preserving creation path: no worktree, no tmux session —
@@ -2182,15 +2157,13 @@ cmd_new() {
     # stem is reused, never overwritten).
     local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
     local was_new=0; [ -f "$task_file" ] || was_new=1
-    _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-    wb_task_lock_acquire_guarded "$task_file" || exit $?
+    _wb_lock "$task_file"
     local seed_status="planned"; [ "$prospective_flag" = 1 ] && seed_status="prospective"
     task_file="$(wb_seed_task_planned "$repo" "$slug" "$parent_ref" "$title_override" "$seed_status")"
     # --depends-on: explicit wins. depends_on: is what a later plain
     # `wb new` reads to stack the branch on its blocker
     # (_wb_new_start_point), so dropping it here silently unstacks it.
-    [ -z "$depends_on_joined" ] || wb_set_frontmatter "$task_file" depends_on "$depends_on_joined"
-    [ -z "$jira_url" ] || wb_set_frontmatter "$task_file" jira "$jira_url"
+    wb_fm_write "$task_file" ${depends_on_joined:+depends_on "$depends_on_joined"} ${jira_url:+jira "$jira_url"}
     # The ## Plan body comes ONLY from an explicit --body - (stdin) or
     # --body-file <path>; without either flag stdin is never touched (an
     # implicit read hung/swallowed input for non-tty callers such as a
@@ -2299,8 +2272,7 @@ cmd_new() {
   else
     task_file="$(wb_task_file "$repo" "$disp_slug")"
   fi
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$task_file" || exit $?
+  _wb_lock "$task_file"
   local seed_was_new=0; [ -f "$task_file" ] || seed_was_new=1
   task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}" "$depends_on_joined")"
   [ "$seed_was_new" = 0 ] || _wb_new_seed "$task_file"
@@ -2421,7 +2393,7 @@ _wb_resolve_task_fuzzy() {
 # a prior `wb done`).
 cmd_resume() {
   local query="${1:-}"
-  [ -n "$query" ] || { echo "usage: wb resume <task>" >&2; exit 1; }
+  [ -n "$query" ] || _wb_die "usage: wb resume <task>"
 
   local file
   file="$(_wb_resolve_task_fuzzy "$query" "wb resume")" || exit 1
@@ -2430,7 +2402,7 @@ cmd_resume() {
   repo="$(wb_get_frontmatter "$file" repo)"
   branch="$(wb_get_frontmatter "$file" branch)"
   [ -n "$repo" ] && [ -n "$branch" ] \
-    || { echo "wb resume: $file has no repo:/branch: frontmatter to resume from" >&2; exit 1; }
+    || _wb_die "wb resume: $file has no repo:/branch: frontmatter to resume from"
   # KTD7: post-migration, a continuing child's branch:/worktree: equal the
   # PARENT's original identity — cmd_new deriving the task file from
   # repo+branch alone would resolve back to the PARENT's file. $file is
@@ -2444,8 +2416,7 @@ cmd_resume() {
   # gain a Handoffs entry (see wb_append_handoff's own header comment).
   # A SEPARATE lock burst from cmd_new's own internal one above (which
   # has already released by the time cmd_new returns) — never nested.
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$file" || exit $?
+  _wb_lock "$file"
   # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
   wb_append_handoff "$file" "wb resume" 'Session resumed via `wb resume`.'
   wb_task_lock_release "$file"
@@ -2703,38 +2674,31 @@ wb_branch_has_open_pr() {
 # cmd_reconcile — two kinds of drift:
 #   - orphaned worktree: a real git worktree with no task file pointing at it
 #   - missing worktree: a task file's worktree: field points nowhere
-# wb_worktree_has_task <repo> <rel_worktree> — true if some task file's
-# repo:/worktree: pair matches exactly, or one of its valid worktrees: entries
-# is <repo>/<rel_worktree>. Shared by cmd_reconcile's orphan
-# detection and /board's untracked-worktree rows (U4) — same question,
-# asked from two call sites, must never drift out of sync.
-wb_worktree_has_task() {
-  local repo="$1" rel="$2" tf kind val e
-  local t_repo t_wt t_wts
-  while IFS= read -r tf; do
-    t_repo="" t_wt="" t_wts=""
-    # repo:, worktree: and worktrees: in one pass, read as
-    # wb_get_frontmatter_text does (first match of each key wins)
-    while IFS= read -r kind && IFS= read -r val; do
-      case "$kind" in r) t_repo="$val" ;; w) t_wt="$val" ;; x) t_wts="$val" ;; esac
-    done < <(awk '
-      NR == 1 && $0 != "---" { exit }
-      /^---$/ { infm++; if (infm == 2) exit; next }
-      infm == 1 {
-        if (!r && $0 ~ "^repo:") { r = 1; sub("^repo:[ \t]*", ""); print "r"; print; next }
-        if (!w && $0 ~ "^worktree:") { w = 1; sub("^worktree:[ \t]*", ""); print "w"; print; next }
-        if (!x && $0 ~ "^worktrees:") { x = 1; sub("^worktrees:[ \t]*", ""); print "x"; print }
-      }
-    ' "$tf")
-    if [ "$t_repo" = "$repo" ] && [ "$t_wt" = "$rel" ]; then
-      return 0
-    fi
+# _wb_task_worktree_set <assoc-name> — reads wb_read_tasks_batch rows on
+# stdin and sets <assoc>["<repo>|<rel_worktree>"]=1 for every worktree a
+# task owns: its repo:/worktree: pair, plus each valid worktrees: entry.
+_wb_task_worktree_set() {
+  local -n _tws_out="$1"
+  local line tf t_repo t_wt t_wts e
+  local -a r
+  while IFS= read -r line; do
+    wb_tsv_split "$line" r
+    tf="${r[0]:-}" t_repo="${r[2]:-}" t_wt="${r[3]:-}" t_wts="${r[9]:-}"
+    [ -n "$t_repo" ] && [ -n "$t_wt" ] && _tws_out["$t_repo|$t_wt"]=1
     [[ "$t_wts" == *[![:space:]]* ]] || continue
     while IFS= read -r e; do
-      [ "$e" = "$repo/$rel" ] && return 0
+      _tws_out["${e%%/*}|${e#*/}"]=1
     done < <(_wb_filter_worktrees "$tf" "$t_wts" "$t_repo" quiet)
-  done < <(wb_task_files)
-  return 1
+  done
+}
+
+# wb_worktree_has_task <repo> <rel_worktree> — true if some task owns that
+# worktree (see _wb_task_worktree_set). Reads the whole store per call;
+# wb_reconcile_collect builds the set once instead.
+wb_worktree_has_task() {
+  local -A owned=()
+  _wb_task_worktree_set owned < <(_wb_store_rows)
+  [ -n "${owned["$1|$2"]:-}" ]
 }
 
 # wb_reconcile_collect — one TSV line per drift finding, shared by
@@ -2743,29 +2707,32 @@ wb_worktree_has_task() {
 #   orphan:  kind=orphan   repo  branch  worktree(rel)  merge-status
 #   missing: kind=missing  repo  branch(from frontmatter)  worktree(rel)  taskfile(abs path)
 wb_reconcile_collect() {
-  local repo_dir repo branch abs_path rel merged
+  local repo_dir repo branch abs_path rel merged rows
+  local -A owned=()
+  rows="$(_wb_store_rows)"
+  _wb_task_worktree_set owned <<< "$rows"
   while IFS= read -r repo_dir; do
     [ -d "$repo_dir/.git" ] || continue
     repo="$(basename "$repo_dir")"
     while IFS=$'\t' read -r branch abs_path; do
       [ -n "$abs_path" ] || continue
       rel="${abs_path#"$repo_dir"/}"
-      if ! wb_worktree_has_task "$repo" "$rel"; then
+      if [ -z "${owned["$repo|$rel"]:-}" ]; then
         merged="$(wb_pr_merge_status "$repo_dir" "$branch")"
         printf 'orphan\t%s\t%s\t%s\t%s\n' "$repo" "$branch" "$rel" "$merged"
       fi
     done < <(wb_repo_worktrees "$repo_dir")
   done < <(wb_reconcile_repos)
 
-  local tf t_repo t_worktree t_branch
-  while IFS= read -r tf; do
-    t_repo="$(wb_get_frontmatter "$tf" repo)"
-    t_worktree="$(wb_get_frontmatter "$tf" worktree)"
+  local line t_repo t_worktree
+  local -a r
+  while IFS= read -r line; do
+    wb_tsv_split "$line" r
+    t_repo="${r[2]:-}" t_worktree="${r[3]:-}"
     [ -n "$t_repo" ] && [ -n "$t_worktree" ] || continue
     [ -d "$(wb_repo_dir "$t_repo")/$t_worktree" ] && continue
-    t_branch="$(wb_get_frontmatter "$tf" branch)"
-    printf 'missing\t%s\t%s\t%s\t%s\n' "$t_repo" "$t_branch" "$t_worktree" "$tf"
-  done < <(wb_task_files)
+    printf 'missing\t%s\t%s\t%s\t%s\n' "$t_repo" "${r[4]:-}" "$t_worktree" "${r[0]}"
+  done <<< "$rows"
 }
 
 # wb_reconcile_collect_duplicates — one TSV line per duplicate finding, in a
@@ -3713,7 +3680,8 @@ _wb_breakdown_replace_section() {
   local file="$1" heading="$2" body="$3" bodyfile
   bodyfile="$(mktemp)"
   printf '%s\n' "$body" > "$bodyfile"
-  awk -v h="## $heading" -v bodyfile="$bodyfile" '
+  # shellcheck disable=SC2016  # an awk program, not a shell expansion
+  _wb_awk_inplace "$file" -v h="## $heading" -v bodyfile="$bodyfile" '
     BEGIN { insec = 0; replaced = 0 }
     $0 == h && !replaced {
       replaced = 1
@@ -3729,7 +3697,7 @@ _wb_breakdown_replace_section() {
     insec && /^## / { insec = 0; print "" }
     insec { next }
     { print }
-  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  '
   rm -f "$bodyfile"
 }
 
@@ -3916,17 +3884,13 @@ _wb_breakdown_execute() {
     [ "${f[0]}" = migrate ] || continue
     local target_disp="${f[2]}"
     local target_file="$TASKS_DIR/$parent_repo--$target_disp.md"
-    local p_branch p_worktree
-    p_branch="$(wb_get_frontmatter "$parent_file" branch)"
-    p_worktree="$(wb_get_frontmatter "$parent_file" worktree)"
-    wb_set_frontmatter "$target_file" branch "$p_branch"
-    wb_set_frontmatter "$target_file" worktree "$p_worktree"
-    p_worktrees="$(wb_get_frontmatter "$parent_file" worktrees)"
-    [ -z "$p_worktrees" ] || wb_set_frontmatter "$target_file" worktrees "$p_worktrees"
-    [ "$(wb_get_frontmatter "$target_file" status)" != planned ] || wb_set_frontmatter "$target_file" status doing
-    wb_set_frontmatter "$parent_file" branch ""
-    wb_set_frontmatter "$parent_file" worktree ""
-    [ -z "$p_worktrees" ] || wb_set_frontmatter "$parent_file" worktrees ""
+    local -a pf; wb_tsv_split "$(wb_read_task "$parent_file")" pf
+    p_worktrees="${pf[8]:-}"
+    local -a to_child=(branch "${pf[3]:-}" worktree "${pf[2]:-}") to_parent=(branch "" worktree "")
+    [ -z "$p_worktrees" ] || { to_child+=(worktrees "$p_worktrees"); to_parent+=(worktrees ""); }
+    [ "$(wb_get_frontmatter "$target_file" status)" != planned ] || to_child+=(status doing)
+    wb_fm_write "$target_file" "${to_child[@]}"
+    wb_fm_write "$parent_file" "${to_parent[@]}"
     migration_target_file="$target_file"
     did_something=1
   done <<< "$actions"
@@ -3959,14 +3923,11 @@ _wb_breakdown_execute() {
 # migrated session already re-pointed by a prior apply).
 _wb_breakdown_repoint_task() {
   local parent_file="$1" target_file="$2"
-  local session matched=0 cur
+  local session matched=0
   while IFS= read -r session; do
-    [ -n "$session" ] || continue
-    cur="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
-    [ "$cur" = "$parent_file" ] || continue
     tmux set-option -t "=$session:" @task "$target_file" >/dev/null
     matched=$((matched + 1))
-  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+  done < <(wb_sessions_with_task "$parent_file")
   if [ "$matched" -eq 0 ]; then
     echo "wb breakdown --apply: no live session had @task pointing at $parent_file — nothing to re-point" >&2
   fi
@@ -4113,12 +4074,12 @@ _wb_resolve_session_and_task() {
   local -n _wb_rst_session="$2" _wb_rst_task="$3"
   _wb_rst_session="${4:-}"
   if [ -z "$_wb_rst_session" ]; then
-    [ -n "${TMUX:-}" ] || { echo "wb $_wb_rst_verb: run inside the target session, or pass a session name" >&2; exit 1; }
+    [ -n "${TMUX:-}" ] || _wb_die "wb $_wb_rst_verb: run inside the target session, or pass a session name"
     _wb_rst_session="$(tmux display-message -p '#S')"
   fi
   _wb_rst_task="$(wb_session_task_file "$_wb_rst_session")" \
-    || { echo "wb $_wb_rst_verb: $_wb_rst_session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
-  [ -f "$_wb_rst_task" ] || { echo "wb $_wb_rst_verb: no task file for $_wb_rst_session ($_wb_rst_task)" >&2; exit 1; }
+    || _wb_die "wb $_wb_rst_verb: $_wb_rst_session has no @wb_repo/@wb_slug — not a wb task session"
+  [ -f "$_wb_rst_task" ] || _wb_die "wb $_wb_rst_verb: no task file for $_wb_rst_session ($_wb_rst_task)"
 }
 
 # _wb_down_shelf_warn <task-file> <closing: 1|0> — the first thing wb down and wb pause do
@@ -4199,8 +4160,10 @@ cmd_down() {
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_continue_drop "$(basename -- "$task_file" .md)" down "wb down"
   wb_task_lock_acquire_guarded "$task_file" || exit $?
-  [ -z "$snapshot" ] || wb_set_frontmatter "$task_file" claude_sessions "$snapshot"
-  [ "$has_open_pr" = 0 ] && [ "$no_status_flip" = 0 ] && wb_set_frontmatter "$task_file" status review
+  local -a fm=()
+  [ -z "$snapshot" ] || fm+=(claude_sessions "$snapshot")
+  [ "$has_open_pr" = 0 ] && [ "$no_status_flip" = 0 ] && fm+=(status review)
+  wb_fm_write "$task_file" "${fm[@]+"${fm[@]}"}"
   if [ "$keep_session" = 1 ]; then
     # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
     wb_append_handoff "$task_file" "wb down" 'Worktree kept, session left open (`wb down --keep-session`).'
@@ -4286,8 +4249,7 @@ cmd_reviewed() {
   local session task_file
   _wb_resolve_session_and_task reviewed session task_file "${1:-}"
 
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$task_file" || exit $?
+  _wb_lock "$task_file"
   wb_set_frontmatter "$task_file" reviewed "$(date +%F)"
   wb_task_lock_release "$task_file"
   echo "wb reviewed: $session marked reviewed ($task_file)"
@@ -4314,13 +4276,12 @@ cmd_reviewed() {
 cmd_jira_set() {
   local stem="${1:-}" url="${2:-}"
   if [ -z "$stem" ] || [ -z "$url" ]; then
-    echo "wb jira-set: usage: wb jira-set <repo>--<slug> <url>" >&2
-    exit 1
+    _wb_die "wb jira-set: usage: wb jira-set <repo>--<slug> <url>"
   fi
 
   local file="$TASKS_DIR/$stem.md"
   [ -f "$file" ] \
-    || { echo "wb jira-set: '$stem' has no matching task file in $TASKS_DIR" >&2; exit 1; }
+    || _wb_die "wb jira-set: '$stem' has no matching task file in $TASKS_DIR"
 
   # Fast path (KTD3): a pure retry against an already-correctly-stamped task is
   # a no-op that must not contend on the lock at all. This pre-lock read is
@@ -4331,8 +4292,7 @@ cmd_jira_set() {
     return 0
   fi
 
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$file" || exit $?
+  _wb_lock "$file"
 
   # The authoritative idempotent-or-refuse decision (KTD3) is made UNDER the
   # lock and is atomic with the write below (W5: check-then-write must run
@@ -4349,8 +4309,7 @@ cmd_jira_set() {
       echo "wb jira-set: $stem already stamped with $url (no-op)"
       return 0
     fi
-    echo "wb jira-set: $stem already has a different jira: value ($existing) — refusing to overwrite" >&2
-    exit 1
+    _wb_die "wb jira-set: $stem already has a different jira: value ($existing) — refusing to overwrite"
   fi
 
   wb_set_frontmatter "$file" jira "$url"
@@ -4371,8 +4330,7 @@ _wb_git_dirty_guard() {
   if [ -n "$dirty" ]; then
     echo "$verb: $path is dirty:" >&2
     echo "$dirty" >&2
-    echo "commit or stash, then re-run" >&2
-    exit 1
+    _wb_die "commit or stash, then re-run"
   fi
 }
 
@@ -4394,8 +4352,7 @@ _wb_git_dirty_guard() {
 cmd_unsafe_rewind() {
   local reason="$*"
   if [ -z "$reason" ]; then
-    echo "wb unsafe-rewind: usage: wb unsafe-rewind \"<reason>\" — a non-empty reason is required" >&2
-    exit 1
+    _wb_die "wb unsafe-rewind: usage: wb unsafe-rewind \"<reason>\" — a non-empty reason is required"
   fi
 
   local sentinel="$TASKS_DIR/.git/WB_ALLOW_REWIND"
@@ -4476,7 +4433,8 @@ _wb_append_under_heading() {
   # byte) with no error anywhere in the chain. Reproduced live; confirmed
   # `ENVIRON["..."]` preserves the value byte-for-byte since env-var
   # assignment does no such processing.
-  WB_APPEND_TARGET="$target" WB_APPEND_BODY="$body" awk '
+  # shellcheck disable=SC2016  # an awk program, not a shell expansion
+  WB_APPEND_TARGET="$target" WB_APPEND_BODY="$body" _wb_awk_inplace "$file" '
     BEGIN { target = ENVIRON["WB_APPEND_TARGET"]; body = ENVIRON["WB_APPEND_BODY"] }
     function isHeadingLine() { return (prev == "" || FNR == 1) }
     BEGIN { insection = 0; inserted = 0; prev = "" }
@@ -4506,7 +4464,7 @@ _wb_append_under_heading() {
         print body
       }
     }
-  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  '
 }
 
 # wb_append_handoff <task_file> <source> <message> — writes a terse,
@@ -4591,8 +4549,7 @@ _wb_append_resolve_task() {
 cmd_append() {
   local query="${1:-}" heading="${2:-}"
   if [ -z "$query" ] || [ -z "$heading" ]; then
-    echo "usage: wb append <task-ref> <heading> [<body>|-]   (body omitted or '-' reads multi-line stdin)" >&2
-    exit 1
+    _wb_die "usage: wb append <task-ref> <heading> [<body>|-]   (body omitted or '-' reads multi-line stdin)"
   fi
 
   local body
@@ -4601,13 +4558,12 @@ cmd_append() {
   else
     body="$3"
   fi
-  [ -n "$body" ] || { echo "wb append: empty body — nothing to append" >&2; exit 1; }
+  [ -n "$body" ] || _wb_die "wb append: empty body — nothing to append"
 
   local file
   file="$(_wb_append_resolve_task "$query")" || exit 1
 
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$file" || exit $?
+  _wb_lock "$file"
   # KTD16: Decisions/Follow-ups write a record file in the dossier, Handoffs
   # does the move-and-replace; every other heading is appended under that
   # heading in the task file.
@@ -4859,7 +4815,8 @@ _wb_section_text() {
 # none. The frontmatter is never scanned. Atomic via temp + mv.
 _wb_replace_block() {
   local file="$1" heading="$2" body="$3" ins="$4"
-  WB_BLK_TARGET="## $heading" WB_BLK_BODY="$body" WB_BLK_INS="$ins" awk '
+  # shellcheck disable=SC2016  # an awk program, not a shell expansion
+  WB_BLK_TARGET="## $heading" WB_BLK_BODY="$body" WB_BLK_INS="$ins" _wb_awk_inplace "$file" '
     BEGIN { target = ENVIRON["WB_BLK_TARGET"]; body = ENVIRON["WB_BLK_BODY"]
             ins = ENVIRON["WB_BLK_INS"] + 0
             skipping = 0; fm = 0; replaced = 0; nb = 0; prev = "" }
@@ -4887,7 +4844,7 @@ _wb_replace_block() {
         print target; print ""; print body
       }
     }
-  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  '
 }
 
 # _wb_handoff_move_entry <handoffs_dir> <entry text> — write one handoff
@@ -5282,8 +5239,7 @@ cmd_views() {
 cmd_now() {
   local query="${1:-}"
   if [ -z "$query" ]; then
-    echo "usage: wb now <task-ref> [<body>|-]   (body omitted or '-' reads multi-line stdin)" >&2
-    exit 1
+    _wb_die "usage: wb now <task-ref> [<body>|-]   (body omitted or '-' reads multi-line stdin)"
   fi
   local body
   if [ $# -lt 2 ] || [ "$2" = "-" ]; then body="$(cat)"; else body="$2"; fi
@@ -5292,13 +5248,12 @@ cmd_now() {
     if [[ "$body" == *$'\n'* ]]; then body="${body#*$'\n'}"; else body=""; fi
     body="$(_wb_trim_blank_lines "$body")"
   fi
-  [ -n "$body" ] || { echo "wb now: empty body — nothing to write" >&2; exit 1; }
+  [ -n "$body" ] || _wb_die "wb now: empty body — nothing to write"
 
   local file
   file="$(_wb_append_resolve_task "$query" "wb now")" || exit 1
 
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$file" || exit $?
+  _wb_lock "$file"
   if ! _wb_replace_block "$file" "Now" "$body" 1; then
     wb_task_lock_release "$file"
     echo "wb now: could not rewrite \"## Now\" in $(basename -- "$file")" >&2
@@ -5317,19 +5272,17 @@ cmd_now() {
 cmd_decide_supersede() {
   local query="${1:-}" old="${2:-}"
   if [ -z "$query" ] || [ -z "$old" ]; then
-    echo "usage: wb decide-supersede <task-ref> <old-decision-id> [<text>|-]" >&2
-    exit 1
+    _wb_die "usage: wb decide-supersede <task-ref> <old-decision-id> [<text>|-]"
   fi
   old="${old%.md}"
   local text
   if [ $# -lt 3 ] || [ "$3" = "-" ]; then text="$(cat)"; else text="$3"; fi
-  [ -n "$text" ] || { echo "wb decide-supersede: empty body — nothing to write" >&2; exit 1; }
+  [ -n "$text" ] || _wb_die "wb decide-supersede: empty body — nothing to write"
 
   local file
   file="$(_wb_append_resolve_task "$query" "wb decide-supersede")" || exit 1
 
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$file" || exit $?
+  _wb_lock "$file"
   local dir; dir="$(_wb_dossier_dir "$file")"
   local oldf="$dir/decisions/$old.md" msg=""
   if [[ "$old" == */* ]] || [ ! -f "$oldf" ]; then
@@ -5339,17 +5292,14 @@ cmd_decide_supersede() {
   fi
   if [ -n "$msg" ]; then
     wb_task_lock_release "$file"
-    echo "wb decide-supersede: $msg" >&2
-    exit 1
+    _wb_die "wb decide-supersede: $msg"
   fi
   _wb_record_write_file "$file" decisions "$old" "$text" || { wb_task_lock_release "$file"; exit 1; }
   local new="$WB_RECORD_ID"
-  if ! wb_set_frontmatter_field "$oldf" status superseded \
-     || ! wb_set_frontmatter_field "$oldf" superseded_by "[$new]"; then
+  if ! wb_fm_write "$oldf" status superseded superseded_by "[$new]"; then
     wb_render_views "$file"
     wb_task_lock_release "$file"
-    echo "wb decide-supersede: wrote $new but could not mark '$old' superseded; fix $oldf by hand (status: superseded, superseded_by: [$new])" >&2
-    exit 1
+    _wb_die "wb decide-supersede: wrote $new but could not mark '$old' superseded; fix $oldf by hand (status: superseded, superseded_by: [$new])"
   fi
   wb_render_views "$file"
   wb_task_lock_release "$file"
@@ -5382,8 +5332,7 @@ _wb_followup_list() {
 cmd_followups() {
   local query="${1:-}"
   if [ -z "$query" ]; then
-    echo "usage: wb followups <task-ref>" >&2
-    exit 1
+    _wb_die "usage: wb followups <task-ref>"
   fi
   local file
   file="$(_wb_append_resolve_task "$query" "wb followups")" || exit 1
@@ -5418,8 +5367,7 @@ _wb_followup_pick() {
 cmd_followup_done() {
   local query="${1:-}" ref="${2:-}"
   if [ -z "$query" ] || [ -z "$ref" ]; then
-    echo "usage: wb followup-done <task-ref> <ref> [<note>|-]   (see wb followups; note '-' reads stdin)" >&2
-    exit 1
+    _wb_die "usage: wb followup-done <task-ref> <ref> [<note>|-]   (see wb followups; note '-' reads stdin)"
   fi
   local note=""
   if [ $# -ge 3 ]; then
@@ -5429,8 +5377,7 @@ cmd_followup_done() {
   local file
   file="$(_wb_append_resolve_task "$query" "wb followup-done")" || exit 1
 
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$file" || exit $?
+  _wb_lock "$file"
   local open picked rc=0 today; today="$(date '+%Y-%m-%d')"
   open="$(_wb_followup_list "$file" open)"
   picked="$(_wb_followup_pick "$open" "$ref")" || rc=$?
@@ -5485,19 +5432,16 @@ cmd_followup_done() {
 cmd_status() {
   local query="${1:-}" new="${2:-}"
   if [ -z "$query" ] || [ -z "$new" ]; then
-    echo "usage: wb status <task-ref> <prospective|planned|paused|doing|review>" >&2
-    exit 1
+    _wb_die "usage: wb status <task-ref> <prospective|planned|paused|doing|review>"
   fi
 
   case "$new" in
     prospective|planned|paused|doing|review) ;;
     done)
-      echo "wb status: use \`wb done <task>\` instead" >&2
-      exit 1
+      _wb_die "wb status: use \`wb done <task>\` instead"
       ;;
     *)
-      echo "usage: wb status <task-ref> <prospective|planned|paused|doing|review>" >&2
-      exit 1
+      _wb_die "usage: wb status <task-ref> <prospective|planned|paused|doing|review>"
       ;;
   esac
 
@@ -5517,9 +5461,8 @@ cmd_status() {
     exit 0
   fi
 
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$file" || exit $?
-  wb_set_frontmatter_field "$file" status "$new"
+  _wb_lock "$file"
+  wb_set_frontmatter "$file" status "$new"
   wb_task_lock_release "$file"
   echo "wb status: $(basename -- "$file") $old -> $new"
 }
@@ -5527,7 +5470,7 @@ cmd_status() {
 # ---------------------------------------------------------------------------
 # wb set — generalizes `wb status` (above) to a controlled subset of
 # board-metadata frontmatter fields: set exactly one field on a STORE-ONLY
-# task, under the per-task lock, via the shared wb_set_frontmatter_field
+# task, under the per-task lock, via the shared wb_fm_write
 # rewrite core. Same live-session-refusal scan as cmd_status — this verb
 # is for tasks with no session to carry the change.
 # ---------------------------------------------------------------------------
@@ -5609,7 +5552,7 @@ WB_SET_FIELDS="priority value size parent depends_on jira pr tags path branch ru
 # rewrites just that one frontmatter line under the per-task lock. Inserts
 # the field right after `size:` when it's missing entirely (priority:/
 # value: land there in TEMPLATE.md's own field order) — every other
-# missing field falls back to wb_set_frontmatter_field's own default
+# missing field falls back to wb_fm_write's own default
 # (just before the closing `---`). No write when the value already
 # matches — except `--unset` on a key missing entirely, which inserts it
 # empty (schema backfill). Never appends a Handoffs entry: a frontmatter
@@ -5617,24 +5560,20 @@ WB_SET_FIELDS="priority value size parent depends_on jira pr tags path branch ru
 cmd_set() {
   local query="${1:-}" field="${2:-}" value="${3:-}"
   if [ -z "$query" ] || [ -z "$field" ] || [ "$#" -lt 3 ]; then
-    echo "usage: wb set <task-ref> <field> <value|--unset>   (field: $WB_SET_FIELDS)" >&2
-    exit 1
+    _wb_die "usage: wb set <task-ref> <field> <value|--unset>   (field: $WB_SET_FIELDS)"
   fi
 
   case "$field" in
     status)
-      echo "wb set: 'status' is not settable via \`wb set\` — use \`wb status\`/\`wb done\` instead" >&2
-      exit 1
+      _wb_die "wb set: 'status' is not settable via \`wb set\` — use \`wb status\`/\`wb done\` instead"
       ;;
     created|closed|reviewed|claude_sessions|repo|worktree|worktrees)
-      echo "wb set: '$field' is not settable via \`wb set\` (tooling-owned field)" >&2
-      exit 1
+      _wb_die "wb set: '$field' is not settable via \`wb set\` (tooling-owned field)"
       ;;
     priority|value|size|parent|depends_on|jira|pr|tags|path|branch|rung)
       ;;
     *)
-      echo "wb set: unknown field '$field' (allowed: $WB_SET_FIELDS)" >&2
-      exit 1
+      _wb_die "wb set: unknown field '$field' (allowed: $WB_SET_FIELDS)"
       ;;
   esac
 
@@ -5666,8 +5605,7 @@ cmd_set() {
         ;;
       size)
         if ! _wb_valid_size "$value"; then
-          echo "wb set: size '$value' is not one of $WB_SIZE_VALUES" >&2
-          exit 1
+          _wb_die "wb set: size '$value' is not one of $WB_SIZE_VALUES"
         fi
         ;;
       parent)
@@ -5675,7 +5613,7 @@ cmd_set() {
           */*) echo "wb set: parent '$value' must not contain '/'" >&2; exit 1 ;;
         esac
         [ -f "$TASKS_DIR/$value.md" ] \
-          || { echo "wb set: parent '$value' has no matching task file in $TASKS_DIR" >&2; exit 1; }
+          || _wb_die "wb set: parent '$value' has no matching task file in $TASKS_DIR"
         ;;
       depends_on)
         local dep
@@ -5686,7 +5624,7 @@ cmd_set() {
             */*) echo "wb set: depends_on '$dep' must not contain '/'" >&2; exit 1 ;;
           esac
           [ -f "$TASKS_DIR/$dep.md" ] \
-            || { echo "wb set: depends_on '$dep' has no matching task file in $TASKS_DIR" >&2; exit 1; }
+            || _wb_die "wb set: depends_on '$dep' has no matching task file in $TASKS_DIR"
         done
         ;;
       jira)
@@ -5708,7 +5646,7 @@ cmd_set() {
           _wb_set_pr="${_wb_set_rest%%,*}"; _wb_set_rest="${_wb_set_rest#*,}"
           read -r _wb_set_pr <<< "$_wb_set_pr"
           [[ "$_wb_set_pr" =~ ^https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+$ ]] \
-            || { echo "wb set: pr '${_wb_set_pr:-(empty entry)}' is not a full GitHub PR URL (https://github.com/<owner>/<repo>/pull/<n>)" >&2; exit 1; }
+            || _wb_die "wb set: pr '${_wb_set_pr:-(empty entry)}' is not a full GitHub PR URL (https://github.com/<owner>/<repo>/pull/<n>)"
           _wb_set_prs="${_wb_set_prs:+$_wb_set_prs, }$_wb_set_pr"
         done
         value="$_wb_set_prs"
@@ -5720,7 +5658,7 @@ cmd_set() {
         # cwd being one.
         local _wb_set_ref
         _wb_set_ref="$(git -C / check-ref-format --branch "$value" 2>/dev/null)" && [ "$_wb_set_ref" = "$value" ] \
-          || { echo "wb set: branch '$value' is not a valid git branch name" >&2; exit 1; }
+          || _wb_die "wb set: branch '$value' is not a valid git branch name"
         ;;
       tags|path|rung) ;;   # free text — no enum, no existence check
     esac
@@ -5748,8 +5686,7 @@ cmd_set() {
   # same stale `old`, merge independently, and the second writer would
   # silently discard the first writer's tag. Acquiring the lock here
   # covers read+merge+write as one atomic section for every field.
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$file" || exit $?
+  _wb_lock "$file"
 
   local old
   old="$(wb_get_frontmatter "$file" "$field")"
@@ -5786,7 +5723,7 @@ cmd_set() {
   fi
 
   # A file with duplicate `$field:` lines (e.g. left behind by the old
-  # buggy insert-without-checking wb_set_frontmatter_field) must never
+  # buggy insert-without-checking frontmatter writer) must never
   # short-circuit as a no-op even when the FIRST occurrence already reads
   # $value — the awk rewrite below is what dedupes the file down to one
   # line, and skipping it here would leave the duplicates in place.
@@ -5805,7 +5742,7 @@ cmd_set() {
   # through this locked verb. The value didn't change, so no Handoffs entry
   # even for the structural fields.
   if [ "$unset_req" -eq 1 ] && [ "$dup_count" -eq 0 ]; then
-    wb_set_frontmatter_field "$file" "$field" "" "$after_key"
+    wb_set_frontmatter "$file" "$field" "" "$after_key"
     wb_task_lock_release "$file"
     echo "wb set: $(basename -- "$file") $field: key added (empty)"
     exit 0
@@ -5821,7 +5758,7 @@ cmd_set() {
     exit 0
   fi
 
-  wb_set_frontmatter_field "$file" "$field" "$value" "$after_key"
+  wb_set_frontmatter "$file" "$field" "$value" "$after_key"
   wb_task_lock_release "$file"
   if [ "$unset_req" -eq 1 ]; then
     echo "wb set: $(basename -- "$file") $field '$old' -> (cleared)"
@@ -5926,20 +5863,17 @@ _wb_week_cmd_path() {
 _wb_week_cmd_append() {
   local section="${1:-}" body="${2:-}"
   if [ -z "$section" ] || [ -z "$body" ]; then
-    echo "usage: wb week append <section> <body>   (section: ${WB_WEEK_SECTIONS[*]})" >&2
-    exit 1
+    _wb_die "usage: wb week append <section> <body>   (section: ${WB_WEEK_SECTIONS[*]})"
   fi
   if ! _wb_week_valid_section "$section"; then
-    echo "wb week append: unknown section '$section' (valid: ${WB_WEEK_SECTIONS[*]})" >&2
-    exit 1
+    _wb_die "wb week append: unknown section '$section' (valid: ${WB_WEEK_SECTIONS[*]})"
   fi
 
   _wb_week_ensure_capture
   local path; path="$(_wb_week_capture_path)"
   local entry; entry="- [ ] $(_wb_week_stamp) · $body"
 
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$path" || exit $?
+  _wb_lock "$path"
   _wb_append_under_heading "$path" "$section" "$entry"
   wb_task_lock_release "$path"
   echo "wb week: appended under \"## $section\" in $(basename -- "$path")"
@@ -5989,8 +5923,7 @@ _wb_week_cmd_record() {
   case "$iso" in
     [0-9][0-9][0-9][0-9]-W[0-9][0-9]) ;;
     *)
-      echo "wb week record: '$iso' is not a valid ISO week (expected <YYYY>-W<WW>, e.g. 2026-W38)" >&2
-      exit 1
+      _wb_die "wb week record: '$iso' is not a valid ISO week (expected <YYYY>-W<WW>, e.g. 2026-W38)"
       ;;
   esac
   _wb_week_ensure_capture
@@ -6003,8 +5936,7 @@ _wb_week_cmd_record() {
   fi
 
   local capture; capture="$(_wb_week_capture_path)"
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$capture" || exit $?
+  _wb_lock "$capture"
 
   # Re-check under the lock (classic double-checked locking): the check
   # above ran BEFORE acquiring the lock, so a second concurrent `wb week
@@ -6072,11 +6004,12 @@ _wb_week_cmd_record() {
   # alongside it, so a fully-emptied section collapses back to the same
   # "heading, blank, next heading" shape _wb_week_ensure_capture's own
   # template produces — never a stray double-blank or dangling line.
-  awk '
+  # shellcheck disable=SC2016  # an awk program, not a shell expansion
+  _wb_awk_inplace "$capture" '
     /^- \[ \] / { skip_blank = 1; next }
     skip_blank && $0 == "" { skip_blank = 0; next }
     { skip_blank = 0; print }
-  ' "$capture" > "$capture.tmp.$$" && mv "$capture.tmp.$$" "$capture"
+  '
 
   wb_task_lock_release "$capture"
   echo "$record"
@@ -6089,8 +6022,7 @@ cmd_week() {
     append) _wb_week_cmd_append "$@" ;;
     record) _wb_week_cmd_record "$@" ;;
     *)
-      echo "usage: wb week path | wb week append <section> <body> | wb week record [<iso>]" >&2
-      exit 1
+      _wb_die "usage: wb week path | wb week append <section> <body> | wb week record [<iso>]"
       ;;
   esac
 }
@@ -6489,8 +6421,7 @@ _wb_done_registered_guard() {
   if wt_list="$(git -C "$repo_dir" worktree list --porcelain 2>/dev/null)"; then
     wt_real="$(realpath -m -- "$wt")"
     if ! printf '%s\n' "$wt_list" | grep -qxF -e "worktree $wt" -e "worktree $wt_real"; then
-      echo "wb done: $wt is no longer a git worktree (a removal half-failed?); check what's left in it, delete it by hand, then run git worktree prune and re-run" >&2
-      exit 1
+      _wb_die "wb done: $wt is no longer a git worktree (a removal half-failed?); check what's left in it, delete it by hand, then run git worktree prune and re-run"
     fi
   fi
 }
@@ -6726,7 +6657,7 @@ cmd_done() {
       --leave-shelved) leave_shelved=1; shift ;;
       --review)        review=1; shift ;;
       --keep|--throwaway)
-        [ $# -ge 2 ] && [ -n "$2" ] || { echo "wb done: $1 needs a path" >&2; exit 1; }
+        [ $# -ge 2 ] && [ -n "$2" ] || _wb_die "wb done: $1 needs a path"
         sweep_flags+=("$1" "$2"); shift 2 ;;
       *)               args+=("$1"); shift ;;
     esac
@@ -6734,8 +6665,8 @@ cmd_done() {
 
   local session="${args[0]:-}"
   if [ -z "$session" ]; then
-    [ -n "${TMUX:-}" ] || { echo "wb done: run inside the target session, or pass a session name" >&2; exit 1; }
-    session="$(tmux display-message -p '#S')" || { echo "wb done: could not read the current tmux session name" >&2; exit 1; }
+    [ -n "${TMUX:-}" ] || _wb_die "wb done: run inside the target session, or pass a session name"
+    session="$(tmux display-message -p '#S')" || _wb_die "wb done: could not read the current tmux session name"
   fi
 
   # KTD7's store-only close: <session> matching no LIVE tmux session at all
@@ -6753,12 +6684,12 @@ cmd_done() {
     # to today's @wb_repo/@wb_slug derivation byte-for-byte when @task isn't
     # set — every session that predates this feature.
     task_file="$(wb_session_task_file "$session")" \
-      || { echo "wb done: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
-    [ -f "$task_file" ] || { echo "wb done: no task file for $session ($task_file)" >&2; exit 1; }
+      || _wb_die "wb done: $session has no @wb_repo/@wb_slug — not a wb task session"
+    [ -f "$task_file" ] || _wb_die "wb done: no task file for $session ($task_file)"
   else
     task_file="$TASKS_DIR/$session.md"
     [ -f "$task_file" ] \
-      || { echo "wb done: '$session' matches no live tmux session and no task file in $TASKS_DIR" >&2; exit 1; }
+      || _wb_die "wb done: '$session' matches no live tmux session and no task file in $TASKS_DIR"
     store_only=1
   fi
 
@@ -6824,8 +6755,7 @@ cmd_done() {
     if [ -n "$(wb_get_frontmatter "$task_file" worktree)" ] \
        && [ ! -d "$worktree_path" ] \
        && [ -d "$repo_dir/.worktrees/$slug" ]; then
-      echo "wb done: $task_file's worktree: ($worktree_rel) doesn't exist, but $repo_dir/.worktrees/$slug does — refusing to guess which is right; fix the drift by hand" >&2
-      exit 1
+      _wb_die "wb done: $task_file's worktree: ($worktree_rel) doesn't exist, but $repo_dir/.worktrees/$slug does — refusing to guess which is right; fix the drift by hand"
     fi
 
     if [ -d "$worktree_path" ]; then
@@ -6930,12 +6860,12 @@ cmd_done() {
     for i in "${!wt_paths[@]}"; do
       [ -n "${wt_keys[i]}" ] || continue
       git -C "$CODE_DIR/${wt_keys[i]}" worktree remove "${wt_paths[i]}" --force \
-        || { echo "wb done: could not remove ${wt_paths[i]} (task left as is)" >&2; exit 1; }
+        || _wb_die "wb done: could not remove ${wt_paths[i]} (task left as is)"
       wt_removed+=("${wt_names[i]}")
     done
     if [ "$primary_on_disk" = 1 ]; then
       git -C "$repo_dir" worktree remove "$worktree_path" --force \
-        || { echo "wb done: could not remove $worktree_path (task left as is)" >&2; exit 1; }
+        || _wb_die "wb done: could not remove $worktree_path (task left as is)"
       wt_removed+=("${wt_names[0]}")
     fi
   elif [ "$review" = 1 ]; then
@@ -6957,16 +6887,12 @@ cmd_done() {
   # parent that must actually flip to done when someone acts on it).
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   local lock_fail="wb done: could not update $task_file"
-  wb_set_frontmatter "$task_file" status "done" \
-    || { wb_task_lock_release "$task_file"; echo "$lock_fail (status not written)" >&2; exit 1; }
-  wb_set_frontmatter "$task_file" closed "$(date +%F)" \
-    || { wb_task_lock_release "$task_file"; echo "$lock_fail (closed date not written)" >&2; exit 1; }
   # U6/R6: a done task has no worktree left to resume into, so the
   # claude_sessions: snapshot (a record of resumable conversations) is
   # stale the instant the worktree is removed — blank it rather than let a
   # future reader mistake a done task for one with a warm history.
-  wb_set_frontmatter "$task_file" claude_sessions "" \
-    || { wb_task_lock_release "$task_file"; echo "$lock_fail (claude_sessions not cleared)" >&2; exit 1; }
+  wb_fm_write "$task_file" status "done" closed "$(date +%F)" claude_sessions "" \
+    || { wb_task_lock_release "$task_file"; echo "$lock_fail (status, closed and claude_sessions not written)" >&2; exit 1; }
   # Say what was actually torn down: without --close the session survives,
   # and a 2026-10-18 batch left 14 idle sessions whose Handoffs all claimed
   # "Session closed". A store-only close never touches a worktree, but a
@@ -7198,16 +7124,19 @@ wb_session_last_attached() {
 # (collect_live_rows reads it for every session in one list-sessions call, so
 # no per-row fork); absent, empty or 0 falls back to the seam above.
 wb_live_session_row() {
-  local session="$1" repo slug task_file branch label statuscol kind ref slug_out="" visit="${2:-}"
-  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
-  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
+  local session="$1" repo="" slug="" task_ref="" task_file branch label statuscol kind ref slug_out="" visit="${2:-}"
+  if [ $# -ge 5 ]; then
+    task_ref="$3" repo="$4" slug="$5"
+  else
+    IFS='|' read -r task_ref repo slug < <(_wb_session_opts "$session") || true
+  fi
   if [ -n "$repo" ] && [ -n "$slug" ]; then
     # @task-first (KTD7): @wb_repo/@wb_slug alone would re-derive the
     # PARENT's file on a migrated session (apply re-points @task, never
     # these two) — repo/slug_out below stay the session's own real git
     # identity regardless; only which task file drives the row's title/
     # branch/ref changes.
-    task_file="$(wb_session_task_file "$session")"
+    task_file="$(wb_session_task_file "$session" "$task_ref" "$repo" "$slug")"
     if [ -f "$task_file" ]; then
       local -a _wt; wb_tsv_split "$(wb_read_task "$task_file")" _wt
       branch="${_wt[3]}"
@@ -7273,17 +7202,11 @@ wb_live_session_row() {
 
 # collect_live_rows — one row per live tmux session, no sub-row expansion.
 collect_live_rows() {
-  local line session attached
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    # Last-attached epoch (empty for a never-attached session), a space, the
-    # name. Time first so the empty case still splits cleanly, and a space
-    # rather than a tab because tmux prints control characters in a format
-    # as "_". Split by expansion: no fork.
-    attached="${line%% *}"; session="${line#* }"
+  local session attached task repo slug
+  while IFS='|' read -r attached session task repo slug; do
     [ -n "$session" ] || continue
-    wb_live_session_row "$session" "$attached"
-  done < <(tmux list-sessions -F '#{session_last_attached} #{session_name}' 2>/dev/null)
+    wb_live_session_row "$session" "$attached" "$task" "$repo" "$slug"
+  done < <(wb_session_table)
 }
 
 # wb_emit_with_agents <row> [level] — print <row>, then expand its agent
@@ -7515,12 +7438,12 @@ _collect_combined_blocks() {
 collect_dormant_rows() {
   local mode="$1" now; now="$(date +%s)"
   local -A live_files=()
-  local session tf
-  while IFS= read -r session; do
+  local session tf _a task repo slug
+  while IFS='|' read -r _a session task repo slug; do
     [ -n "$session" ] || continue
-    tf="$(wb_session_task_file "$session" 2>/dev/null)" || continue
+    tf="$(wb_session_task_file "$session" "$task" "$repo" "$slug" 2>/dev/null)" || continue
     [ -n "$tf" ] && live_files["$tf"]=1
-  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  done < <(wb_session_table)
 
   local -a all_files
   mapfile -t all_files < <(wb_task_files)
@@ -7534,7 +7457,7 @@ collect_dormant_rows() {
   # with how many dormant rows actually exist.
   local f status repo worktree branch title rank urank
   local worktree_abs transcripts newest age
-  while IFS=$'\t' read -r f status repo worktree branch _path _deps _reviewed _sessions; do
+  while IFS=$'\t' read -r f status repo worktree branch _; do
     [ -n "$f" ] || continue
     [ -z "${live_files[$f]:-}" ] || continue
     case "$status" in
@@ -8608,7 +8531,7 @@ cmd_worktree() {
     cur="${cur:+$cur, }$item"
   done < <(_wb_worktrees_items "$raw")
   if [ "$listed" = 0 ]; then
-    wb_set_frontmatter_field "$file" worktrees "${cur:+$cur, }$entry" worktree
+    wb_set_frontmatter "$file" worktrees "${cur:+$cur, }$entry" worktree
   fi
   wb_task_lock_release "$file"
   echo "wb worktree: $stem worktrees: $entry ($([ "$adopted" = 1 ] && echo adopted || echo created))"
@@ -8620,47 +8543,31 @@ cmd_worktree() {
 
 # _wb_family_stems <task_file> — the family's stems, one per line: the top
 # parent first, then every descendant depth-first, each once. The climb is
-# _wb_concepts_paths' guarded walk (seen-set, depth cap 20, self-parent,
-# stop at a missing parent file); the descent is _wb_family_tree, so a
-# hand-edited cycle can't loop either direction.
+# _wb_ancestors and the descent _wb_family_tree, so a hand-edited cycle
+# can't loop either direction.
 _wb_family_stems() {
-  local task_file="$1"
-  local -A seen=()
-  local depth=0 max_depth=20 stem parent_ref parent_file
-  local current_file="$task_file"
-  local root; root="$(basename "$task_file" .md)"
-
-  while [ "$depth" -lt "$max_depth" ]; do
-    stem="$(basename "$current_file" .md)"
-    seen[$stem]=1
-    root="$stem"
-    depth=$((depth + 1))
-    parent_ref="$(wb_get_frontmatter "$current_file" parent)"
-    [ -n "$parent_ref" ] || break
-    wb_task_own_parent "$parent_ref" "$stem" || break
-    [ -z "${seen[$parent_ref]:-}" ] || break
-    parent_file="$TASKS_DIR/$parent_ref.md"
-    [ -f "$parent_file" ] || break
-    current_file="$parent_file"
-  done
-
+  local root stem
+  root="${1##*/}"; root="${root%.md}"
+  while IFS= read -r stem; do root="$stem"; done < <(_wb_ancestors "$1")
   _wb_family_tree "$root"
 }
 
 # _wb_family_tree <stem> — <stem>, then every descendant depth-first, each
-# once. The parent -> children map is built in ONE pass over wb_task_files,
-# and the seen-set stops a hand-edited cycle.
+# once. The parent -> children map comes from ONE batch read of the store
+# (_wb_store_rows), and the seen-set stops a hand-edited cycle.
 _wb_family_tree() {
   local root="$1"
   local -A kids=() out=()
-  local f stem parent_ref
-  while IFS= read -r f; do
-    stem="${f##*/}"; stem="${stem%.md}"
-    parent_ref="$(wb_get_frontmatter "$f" parent)"
+  local line stem parent_ref
+  local -a r
+  while IFS= read -r line; do
+    wb_tsv_split "$line" r
+    parent_ref="${r[10]:-}"
     [ -n "$parent_ref" ] || continue
+    stem="${r[0]##*/}"; stem="${stem%.md}"
     wb_task_own_parent "$parent_ref" "$stem" || continue
     kids[$parent_ref]+=" $stem"
-  done < <(wb_task_files)
+  done < <(_wb_store_rows)
 
   local -a stack=("$root") children=()
   local i
@@ -8725,8 +8632,7 @@ cmd_family() {
     *) echo "usage: wb family <task-ref> [--sessions|--reseed|--concepts]" >&2; exit 1 ;;
   esac
   if [ -z "$query" ] || [ $# -gt 2 ]; then
-    echo "usage: wb family <task-ref> [--sessions|--reseed|--concepts]" >&2
-    exit 1
+    _wb_die "usage: wb family <task-ref> [--sessions|--reseed|--concepts]"
   fi
 
   local file
@@ -8755,10 +8661,9 @@ cmd_family() {
         kill -0 "$reg_pid" 2>/dev/null || continue
         pane_names[$reg_pane]+="$reg_name"$'\n'
       done < <(_wb_registry_panes)
-      local session cur title pane names name
-      while IFS= read -r session; do
+      local session cur title pane names name _a _rest
+      while IFS='|' read -r _a session cur _rest; do
         [ -n "$session" ] || continue
-        cur="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
         if [ -n "$cur" ]; then
           stem="$(basename -- "$cur" .md)"
         else
@@ -8781,7 +8686,7 @@ cmd_family() {
             printf '%s\t%s\t%s\t%s\n' "$stem" "$session" "$title" "$name"
           fi
         done <<< "$names"
-      done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+      done < <(wb_session_table)
       ;;
     --reseed)
       local rc=0 member_file repo wt_field worktree_path
@@ -9200,29 +9105,21 @@ cmd_help() {
 # triggering the CLI dispatch below — real invocation (`bash wb.sh ...` /
 # `./wb.sh ...`) always has BASH_SOURCE[0] == $0, so behavior is unchanged.
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  # Verbs routed by name: `wb <verb>` runs cmd_<verb> (dashes become
+  # underscores). The picker's fzf binds call the _ verbs back the same way,
+  # running _<verb>. Only listed names route, so `wb _wb_write_atomic` is
+  # not callable.
+  wb_verbs=(
+    new resume restart reconcile breakdown "done" pause down pr-open reviewed
+    task-file notes page review worktree jira-set unsafe-rewind append now
+    decide-supersede followups followup-done views family week status set
+    install-hooks
+  )
+  picker_verbs=(
+    _new _down _rename _break-out _ctrl-x _set-mode _toggle-view
+    _refresh-dormant _mode-header _initial-pos _next-needs _preview _preview-label
+  )
   case "${1:-}" in
-    new)         shift; cmd_new "$@" ;;
-    resume)      shift; cmd_resume "$@" ;;
-    restart)     shift; cmd_restart "$@" ;;
-    reconcile)   shift; cmd_reconcile "$@" ;;
-    breakdown)   shift; cmd_breakdown "$@" ;;
-    done)        shift; cmd_done "$@" ;;
-    pause)       shift; cmd_pause "$@" ;;
-    down)        shift; cmd_down "$@" ;;
-    pr-open)     shift; cmd_pr_open "$@" ;;
-    reviewed)    shift; cmd_reviewed "$@" ;;
-    task-file)   shift; cmd_task_file "$@" ;;
-    notes)       shift; cmd_notes "$@" ;;
-    page)        shift; cmd_page "$@" ;;
-    review)      shift; cmd_review "$@" ;;
-    worktree)    shift; cmd_worktree "$@" ;;
-    jira-set)    shift; cmd_jira_set "$@" ;;
-    unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
-    append)      shift; cmd_append "$@" ;;
-    now)         shift; cmd_now "$@" ;;
-    decide-supersede) shift; cmd_decide_supersede "$@" ;;
-    followups)   shift; cmd_followups "$@" ;;
-    followup-done) shift; cmd_followup_done "$@" ;;
     # Sourced only here: wb.sh is stowed file by file, so a top-level source
     # of a new file would break every wb command between a merge and the
     # re-stow that links it.
@@ -9244,24 +9141,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
         decision)          cmd_decision "$@" ;;
         decide-spec-check) cmd_decide_spec_check "$@" ;;
       esac ;;
-    views)       shift; cmd_views "$@" ;;
-    family)      shift; cmd_family "$@" ;;
-    week)        shift; cmd_week "$@" ;;
-    status)      shift; cmd_status "$@" ;;
-    set)         shift; cmd_set "$@" ;;
-    install-hooks) shift; cmd_install_hooks "$@" ;;
     render)      shift; render_rows "$@" ;;
-    _new)        shift; _new "$@" ;;
-    _down)       shift; _down "$@" ;;
-    _rename)     shift; _rename "$@" ;;
-    _break-out)  shift; _break_out "$@" ;;
-    _ctrl-x)     shift; _ctrl_x "$@" ;;
-    _set-mode)   shift; _set_mode "$@" ;;
-    _toggle-view)   shift; _toggle_view "$@" ;;
-    _refresh-dormant) shift; _refresh_dormant "$@" ;;
-    _mode-header) shift; _mode_header "$@" ;;
-    _initial-pos) shift; _initial_pos "$@" ;;
-    _next-needs) shift; _next_needs "$@" ;;
     _continue-release|_continue-release-all)
       _wb_ccmd="$1"; shift
       # shellcheck source=wb-continue.sh
@@ -9278,8 +9158,6 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
       else
         tmux display-message -d 6000 "wb review: this row has no task file" 2>/dev/null || true
       fi ;;
-    _preview)    shift; _preview "$@" ;;
-    _preview-label) shift; _preview_label "$@" ;;
     help|--help|-h) cmd_help ;;
     # Bare `wb` is the picker; an unknown TOKEN is a typo, not a picker
     # query. It used to be handed to fzf as --query, so `wb set` typed on a
@@ -9289,6 +9167,13 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     # <query>` (tmux.conf binds plain `wb.sh`), so the query pass-through
     # had no caller to keep.
     '')          picker "" ;;
-    *)           printf "wb: unknown verb '%s' — try wb help\n" "$1" >&2; exit 2 ;;
+    *)
+      _wb_fn=""
+      for _wb_v in "${wb_verbs[@]}"; do [ "$_wb_v" = "$1" ] && _wb_fn="cmd_${1//-/_}"; done
+      for _wb_v in "${picker_verbs[@]}"; do [ "$_wb_v" = "$1" ] && _wb_fn="${1//-/_}"; done
+      if [ -z "$_wb_fn" ]; then
+        printf "wb: unknown verb '%s' — try wb help\n" "$1" >&2; exit 2
+      fi
+      shift; "$_wb_fn" "$@" ;;
   esac
 fi
